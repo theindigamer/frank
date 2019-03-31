@@ -145,7 +145,7 @@ newtype Desugared = Desugared Source
 -- - require Raw/Refined/Desugared:   t = AnnotT Raw
 -- - require NotRaw / NotDesugared:   NotRaw (t Identity ()) =>   annotation
 
-newtype Prog t = MkProg [TopTerm t]
+newtype Program t = MkProgram [TopTerm t]
   deriving (Show, Eq)
 
 -- | A top-level multihandler signature and clause.

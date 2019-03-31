@@ -58,8 +58,8 @@ getAbModEnv = do s <- getDState
 initDState :: DState
 initDState = MkDState M.empty M.empty
 
-desugar :: Prog Refined -> Prog Desugared
-desugar (MkProg xs) = MkProg $ evalFresh m
+desugar :: Program Refined -> Program Desugared
+desugar (MkProgram xs) = MkProgram $ evalFresh m
   where m = evalStateT (mapM desugarTopTerm' xs) initDState
         desugarTopTerm' tm =
           do putEnv M.empty -- purge mappings from previous context.

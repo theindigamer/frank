@@ -132,7 +132,7 @@ instantiate _ ty = return ty
 -- TODO: change output of check to Maybe String?
 
 -- infer the type of a use w.r.t. the given program
-inferEvalUse :: Prog Desugared -> Use Desugared ->
+inferEvalUse :: Program Desugared -> Use Desugared ->
                 Either String (Use Desugared, VType Desugared)
 inferEvalUse p use = runExcept $ evalFreshMT $ evalStateT comp initTCState
   where comp = unCtx $ do _ <- initContextual p
@@ -142,13 +142,13 @@ inferEvalUse p use = runExcept $ evalFreshMT $ evalStateT comp initTCState
 -- + Init TCState
 -- + Check each top term
 -- + If no exception is thrown during checkTopTerm, return input program
-check :: Prog Desugared -> Either String (Prog Desugared)
-check p = runExcept $ evalFreshMT $ evalStateT (checkProg p) initTCState
+check :: Program Desugared -> Either String (Program Desugared)
+check p = runExcept $ evalFreshMT $ evalStateT (checkProgram p) initTCState
   where
-    checkProg p = unCtx $ do MkProg xs <- initContextual p
-                             theCtx <- getContext
-                             xs' <- mapM checkTopTerm xs
-                             return $ MkProg xs'
+    checkProgram p = unCtx $ do MkProgram xs <- initContextual p
+                                theCtx <- getContext
+                                xs' <- mapM checkTopTerm xs
+                                return $ MkProgram xs'
 
 checkTopTerm :: TopTerm Desugared -> Contextual (TopTerm Desugared)
 checkTopTerm (DefTerm def a) = DefTerm <$> checkMultiHandlerDefinition def <*> pure a
@@ -180,13 +180,13 @@ checkMultiHandlerDefinition (Def id ty@(CType ps q _) cs a) = do
 --      - Check "(amb - lifted) + lifted = amb"
 --    - Recursively infer use of term, but under ambient "amb - lifted"
 inferUse :: Use Desugared -> Contextual (Use Desugared, VType Desugared)
-inferUse u@(Op x _) =                                                           -- Var, PolyVar, Command rules
+inferUse u@(Op x _) =        -- Var, PolyVar, Command rules
   do logBeginInferUse u
      ty <- find x
      res <- instantiate x ty
      logEndInferUse u res
      return (u, res)
-inferUse app@(App f xs a) =                                                     -- App rule
+inferUse app@(App f xs a) =  -- App rule
   do logBeginInferUse app
      (f', ty) <- inferUse f
      (xs', res) <- discriminate ty

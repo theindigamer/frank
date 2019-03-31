@@ -180,12 +180,12 @@ modify f = do ctx <- getContext
 -- Initialise the TCState, return the input program
 -- Type variables of data type / interface definitions are converted into
 -- rigid ty var args (which can later be made flexible for unification)
-initContextual :: Prog Desugared -> Contextual (Prog Desugared)
-initContextual (MkProg ttms) =
+initContextual :: Program Desugared -> Contextual (Program Desugared)
+initContextual (MkProgram ttms) =
   do mapM_ f [d | DataTerm d _ <- ttms] -- init ctrMap
      mapM_ g [i | ItfTerm i _ <- ttms]   -- init cmdMap
      mapM_ h [d | DefTerm d _ <- ttms]    -- init ctx with [hdr: hdr-type]
-     return (MkProg ttms)
+     return (MkProgram ttms)
   where -- data dt p_1 ... p_n = ctr_1 x_11 ... x_1m
         --                     | ...
         -- For each ctr_i add to ctrMap: ctr_i -> (dt, dt-ty-vars, xs_i)

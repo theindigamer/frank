@@ -55,11 +55,11 @@ addAtom id = do s <- getCState
 isAtom :: Identifier -> Compile Bool
 isAtom ident = S.member ident . atoms <$> getCState
 
-compileToFile :: Prog Desugared -> String -> IO ()
+compileToFile :: Program Desugared -> String -> IO ()
 compileToFile p dst = writeFile (dst ++ ".uf") (show $ ppProgShonky $ compile p)
 
-compile :: Prog Desugared -> [S.Def S.Exp]
-compile (MkProg xs) = res
+compile :: Program Desugared -> [S.Def S.Exp]
+compile (MkProgram xs) = res
   where res = reverse $ evalState (compile' xs) st
         st = initialiseItfMap initCState [i | ItfTerm i _ <- xs]
 

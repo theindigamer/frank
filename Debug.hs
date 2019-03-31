@@ -289,8 +289,8 @@ vsep = foldr ($+$) empty
 
 type Doc = PP.Doc
 
-ppProg :: (Show a, HasSource a) => Prog a -> PP.Doc
-ppProg (MkProg tts) = foldl (PP.$+$ ) PP.empty (map ppTopTerm tts)
+ppProgram :: (Show a, HasSource a) => Program a -> PP.Doc
+ppProgram (MkProgram tts) = foldl (PP.$+$ ) PP.empty (map ppTopTerm tts)
 
 ppTopTerm :: (Show a, HasSource a) => TopTerm a -> PP.Doc
 ppTopTerm (DataTerm dt _) = ppDataT dt

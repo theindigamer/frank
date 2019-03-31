@@ -24,16 +24,16 @@ import System.Environment
 import System.Exit
 import System.IO
 
-type Args = [(String,[String])]
+type Args = [(String, [String])]
 
-type PMap = M.Map FilePath (Prog Raw)
+type PMap = M.Map FilePath (Program Raw)
 
 -- Function checks whether or not a main function exists in the program
-existsMain :: Prog t -> Bool
-existsMain (MkProg xs) = "main" `elem` [ident | DefTerm (Def ident _ _ _) _ <- xs]
+existsMain :: Program t -> Bool
+existsMain (MkProgram xs) = "main" `elem` [ident | DefTerm (Def ident _ _ _) _ <- xs]
 
-splice :: Prog Raw -> Term Raw -> Prog Raw
-splice (MkProg xs) tm = MkProg $ xs ++ ys
+splice :: Program Raw -> Term Raw -> Program Raw
+splice (MkProgram xs) tm = MkProgram $ xs ++ ys
   where ys = [sig, cls]
         sig = SigTerm (Sig id (CType [] peg b) b) b
         peg = Peg ab ty b
@@ -44,9 +44,9 @@ splice (MkProg xs) tm = MkProg $ xs ++ ys
         b = Raw Generated
 
 --TODO: LC: Fix locations?
-exorcise :: Prog Desugared -> (Prog Desugared, TopTerm Desugared)
-exorcise (MkProg xs) = (prog, DefTerm (head evalDef) a)
-  where prog = MkProg (map (swap DataTerm a) dts ++
+exorcise :: Program Desugared -> (Program Desugared, TopTerm Desugared)
+exorcise (MkProgram xs) = (prog, DefTerm (head evalDef) a)
+  where prog = MkProgram (map (swap DataTerm a) dts ++
                        map (swap ItfTerm a) itfs ++
                        map (swap DefTerm a) hdrs)
         dts = [d | DataTerm d _ <- xs]
@@ -61,33 +61,33 @@ extractEvalUse (DefTerm (Def _ _ [cls] _) _) = getBody cls
   where getBody (Cls [] (Use u _) _) = u
         getBody _ = error "extractEvalUse: eval body invariant broken"
 
-glue :: Prog Desugared -> TopTerm Desugared -> Prog Desugared
-glue (MkProg xs) x = MkProg (x : xs)
+glue :: Program Desugared -> TopTerm Desugared -> Program Desugared
+glue (MkProgram xs) x = MkProgram (x : xs)
 
-parseProg :: FilePath -> Args -> IO (Either String (Prog Raw))
-parseProg fileName args =
-  do m <- pProg (Right M.empty) fileName
+parseProgram :: FilePath -> Args -> IO (Either String (Program Raw))
+parseProgram fileName args =
+  do m <- pProgram (Right M.empty) fileName
      case m of
        Left msg  -> return $ Left msg
-       Right map -> return $ Right $ MkProg $ M.foldl combine [] map
-  where pProg :: Either String PMap -> FilePath -> IO (Either String PMap)
-        pProg (Left msg) _ = return $ Left msg
-        pProg (Right map) fname | M.member fname map = return $ Right map
-        pProg (Right map) fname =
+       Right map -> return $ Right $ MkProgram $ M.foldl combine [] map
+  where pProgram :: Either String PMap -> FilePath -> IO (Either String PMap)
+        pProgram (Left msg) _ = return $ Left msg
+        pProgram (Right map) fname | M.member fname map = return $ Right map
+        pProgram (Right map) fname =
           let ext = if ".fk" `isSuffixOf` fname then "" else ".fk" in
           do m <- parseFile (fname ++ ext) incPaths
              case m of
                Left msg -> return $ Left msg
-               Right (p,fs) -> foldM pProg (Right (M.insert fname p map)) fs
+               Right (p,fs) -> foldM pProgram (Right (M.insert fname p map)) fs
 
-        combine :: [TopTerm Raw] -> Prog Raw -> [TopTerm Raw]
-        combine xs (MkProg ys) = xs ++ ys
+        combine :: [TopTerm Raw] -> Program Raw -> [TopTerm Raw]
+        combine xs (MkProgram ys) = xs ++ ys
 
         incPaths :: [String]
         incPaths = fromMaybe [] (lookup "inc" args)
 
         parseFile :: String -> [FilePath] ->
-                     IO (Either String (Prog Raw,[String]))
+                     IO (Either String (Program Raw,[String]))
         parseFile name incs = let fs = name : map (++ name) incs in
           do m <- foldM g Nothing fs
              case m of
@@ -105,52 +105,52 @@ parseEvalTerm v = case runTokenParse tm v of
   Left err -> die err
   Right tm -> return tm
 
-refineComb :: Either String (Prog Raw) -> Term Raw -> IO (Prog Refined)
+refineComb :: Either String (Program Raw) -> Term Raw -> IO (Program Refined)
 refineComb prog tm = case prog of
     Left err -> die err
     Right p -> case refine (splice p tm) of
       Left err -> die err
       Right p' -> return p'
 
-refineAndDesugarProg :: Either String (Prog Raw) -> IO (Prog Desugared)
-refineAndDesugarProg p =
+refineAndDesugarProgram :: Either String (Program Raw) -> IO (Program Desugared)
+refineAndDesugarProgram p =
   case p of
     Left err -> die err
     Right p -> case refine p of
       Left err -> die err
       Right p' -> return $ desugar p'
 
-checkProg :: Prog Desugared -> Args -> IO (Prog Desugared)
-checkProg p _ =
+checkProgram :: Program Desugared -> Args -> IO (Program Desugared)
+checkProgram p _ =
   case check p of
     Left err -> die err
     Right p' -> return p'
 
-checkUse :: Prog Desugared -> Use Desugared -> IO (Use Desugared, VType Desugared)
+checkUse :: Program Desugared -> Use Desugared -> IO (Use Desugared, VType Desugared)
 checkUse p use =
   case inferEvalUse p use of
     Left err -> die err
     Right (use, ty) -> return (use, ty)
 
-compileProg :: String -> Prog Desugared -> Args -> IO Shonky.Env
-compileProg progName p args =
+compileProgram :: String -> Program Desugared -> Args -> IO Shonky.Env
+compileProgram progName p args =
   if ("output-shonky",[]) `elem` args then
     do compileToFile p progName
        Shonky.loadFile progName
   else return $ Shonky.load $ compile p
 
-evalProg :: Shonky.Env -> String -> IO ()
-evalProg env tm =
+evalProgram :: Shonky.Env -> String -> IO ()
+evalProgram env tm =
   case Shonky.try env tm of
     Shonky.Ret v -> print (Shonky.ppVal v)
     comp -> do -- putStrLn $ "Generated computation: " ++ show comp
                v <- Shonky.ioHandler comp
                print (Shonky.ppVal v)
 
-compileAndRunProg :: String -> Args -> IO ()
-compileAndRunProg fileName args =
+compileAndRunProgram :: String -> Args -> IO ()
+compileAndRunProgram fileName args =
   do let progName = takeWhile (/= '.') fileName
-     prog <- parseProg fileName args
+     prog <- parseProgram fileName args
      case lookup "eval" args of
        Just [v] -> do tm <- parseEvalTerm v
                       -- lift tm to top term and append to prog
@@ -158,20 +158,20 @@ compileAndRunProg fileName args =
                       -- tear apart again
                       let (p',ttm) = exorcise (desugar p)
                           use = extractEvalUse ttm
-                      p'' <- checkProg p' args
+                      p'' <- checkProgram p' args
                       (use', _) <- checkUse p'' use
-                      env <- compileProg progName (glue p'' ttm) args
-                      evalProg env "%eval()"
+                      env <- compileProgram progName (glue p'' ttm) args
+                      evalProgram env "%eval()"
        Just _ -> die "only one evaluation point permitted"
-       Nothing -> do p <- refineAndDesugarProg prog
-                     p' <- checkProg p args
-                     env <- compileProg progName p' args
+       Nothing -> do p <- refineAndDesugarProgram prog
+                     p' <- checkProgram p args
+                     env <- compileProgram progName p' args
                      case lookup "entry-point" args of
-                       Just [v] -> evalProg env (v ++ "()")
+                       Just [v] -> evalProgram env (v ++ "()")
                        Just _  -> die "only one entry point permitted"
                        Nothing ->
                          if existsMain p' then
-                           evalProg env "main()"
+                           evalProgram env "main()"
                          else
                            putStrLn ("Compilation successful! " ++
                                      "(no main function defined)")
@@ -201,7 +201,7 @@ arguments =
           Nothing -> Right $ ("inc",[x]):args
 
 -- handy for testing in ghci
-run f = compileAndRunProg f []
+run f = compileAndRunProgram f []
 
 main :: IO ()
 main = do
@@ -218,6 +218,6 @@ main = do
   if ("help",[]) `elem` args then
      print $ helpText [] HelpFormatDefault arguments
   else case lookup "file" args of
-    Just [f] -> compileAndRunProg f args
+    Just [f] -> compileAndRunProgram f args
     Just _  -> die "too many Frank sources specified."
     Nothing -> die "no Frank source specified."

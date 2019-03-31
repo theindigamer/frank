@@ -32,11 +32,11 @@ import Debug
 -- Top-level definitions --
 ---------------------------
 
-prog :: (MonadicParsing m) => m (Prog Raw, [FilePath])
+prog :: (MonadicParsing m) => m (Program Raw, [FilePath])
 prog = do whiteSpace
           (tts, fs) <- fmap eplist (many defOrInc)
           eof -- disallows gibberish at the end of the file
-          return (MkProg tts, fs)
+          return (MkProgram tts, fs)
 
 defOrInc :: (MonadicParsing m) => m (Either (TopTerm Raw) FilePath)
 defOrInc = choice [Left <$> def,
@@ -515,7 +515,7 @@ runProgParse ev = runParse ev prog
 -- runProgParseFromFileEx ev fname = runParseFromFileEx ev prog fname
 
 -- runTokenParseFromFile :: (MonadIO m, Applicative m, MonadicParsing m) =>
---                          String -> m (Either String (Prog Raw))
+--                          String -> m (Either String (Program Raw))
 -- runTokenParseFromFile = runProgParseFromFileEx evalTokenIndentationParserT
 
 runTokenParse = runParse evalTokenIndentationParserT

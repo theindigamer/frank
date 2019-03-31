@@ -21,14 +21,14 @@ import RefineSyntaxSubstitItfAliases
 import Debug
 
 -- Main refinement function
-refine :: Prog Raw -> Either String (Prog Refined)
+refine :: Program Raw -> Either String (Program Refined)
 refine prog = evalState (runExceptT (refine' prog)) initRefine
 
 -- Explicit refinements:
 -- + concretise epsilons in top level definitions
 -- + built-in data types, interfaces, operators are added
-refine' :: Prog Raw -> Refine (Prog Refined)
-refine' (MkProg xs) = do
+refine' :: Program Raw -> Refine (Program Refined)
+refine' (MkProgram xs) = do
   -- Make sure datatypes have unique ids
   checkUniqueIds [d | (DataTerm d _) <- xs] (errorRefDuplTopTerm "datatype")
   -- Make sure interfaces and interface aliases have unique ids
@@ -55,7 +55,7 @@ refine' (MkProg xs) = do
   -- Check uniqueness of hdrs w.r.t builtin ones
   -- checkUniqueIds ([h | (DefTerm h _) <- hdrs] ++ builtinMultiHandlerDefinitions)
   --   (errorRefDuplTopTerm "operator")
-  return $ MkProg (map (\dt -> DataTerm dt a) builtinDataTs ++ dtTerms ++
+  return $ MkProgram (map (\dt -> DataTerm dt a) builtinDataTs ++ dtTerms ++
                    map (\itf -> ItfTerm itf a) builtinItfs ++ itfTerms ++
                    map (\hdr -> DefTerm hdr a) builtinMultiHandlerDefinitions ++ hdrs)
   where a = Refined BuiltIn
