@@ -1,5 +1,5 @@
 MkRawProg
- [MkRawItfTm (MkItf "State" ["X"]
+ [MkRawInterfaceTm (MkInterface "State" ["X"]
             [MkCmd "get" [] (MkDTTy "X" MkEmpAb [])
             ,MkCmd "put" [MkDTTy "X" MkEmpAb []]
                           (MkDTTy "Unit" MkEmpAb [])])
@@ -8,21 +8,21 @@ MkRawProg
             , MkPort (MkAdjPlus MkIdAdj "State"
 	      	       [MkDTTy "X" MkEmpAb []]) (MkDTTy "Y" MkEmpAb [])]
             (MkPeg MkOpenAb (MkDTTy "Y" MkEmpAb []))))
- ,MkRawDefTm (MkMHCls "evalState"
+ ,MkRawDefTm (MkMultiHandlerClause "evalState"
  	     	      (MkRawCls [MkVPat (MkVarPat "x")
                                 ,MkCmdPat "put" [MkVarPat "x'"] "k"]
  	     (MkRawComb "evalState" [MkRawId "x'"
 	     	    	            ,MkRawComb "k" [MkRawId "Unit"]])))
- ,MkRawDefTm (MkMHCls "evalState"
+ ,MkRawDefTm (MkMultiHandlerClause "evalState"
  	     	      (MkRawCls [MkVPat (MkVarPat "x")
                                 ,MkCmdPat "get" [] "k"]
  	     (MkRawComb "evalState" [MkRawId "x"
 	     	    	            ,MkRawComb "k" [MkRawId "x"]])))
- ,MkRawDefTm (MkMHCls "evalState" (MkRawCls [MkVPat (MkVarPat "x")
+ ,MkRawDefTm (MkMultiHandlerClause "evalState" (MkRawCls [MkVPat (MkVarPat "x")
                                             ,MkVPat (MkVarPat "y")]
 					    (MkRawId "y")))
  ,MkRawSigTm (MkSig "main" (MkCType [] (MkPeg MkOpenAb MkStringTy)))
- ,MkRawDefTm (MkMHCls "main" (MkRawCls []
+ ,MkRawDefTm (MkMultiHandlerClause "main" (MkRawCls []
  	     	      	       (MkRawComb "evalState"
 			         [MkRawStr "Hello"
 			       	 ,MkRawTmSeq (MkRawComb "put"

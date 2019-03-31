@@ -2,7 +2,7 @@
 
 -- Making implicit [£] explicit in data type, interface and interface alias
 -- definitions
-module RefineSyntaxConcretiseEps (concretiseEps, concretiseEpsArg) where
+module Syntax.Refine.ConcretiseEps (concretiseEps, concretiseEpsArg) where
 
 import Control.Monad
 import Control.Monad.Except
@@ -17,7 +17,7 @@ import BwdFwd
 import Syntax
 
 -- Node container for the graph algorithm
-data Node = DtNode (DataT Raw) | ItfNode (Itf Raw) | ItfAlNode (ItfAlias Raw)
+data Node = DtNode (DataT Raw) | InterfaceNode (Interface Raw) | InterfaceAlNode (InterfaceAlias Raw)
   deriving (Show, Eq)
 
 -- Used as a result of inspecting a node on whether it has an
@@ -42,19 +42,19 @@ hasNoEps = HasEpsIfAny []
 -- [£] for the parent).
 -- Finally, all definitions that are decided to have [£], but do not yet
 -- explicitly have it, are added an additional [£] eff var.
-concretiseEps :: [DataT Raw] -> [Itf Raw] -> [ItfAlias Raw] -> ([DataT Raw], [Itf Raw], [ItfAlias Raw])
+concretiseEps :: [DataT Raw] -> [Interface Raw] -> [InterfaceAlias Raw] -> ([DataT Raw], [Interface Raw], [InterfaceAlias Raw])
 concretiseEps dts itfs itfAls =
   let posNodes = decideGraph (nodes, [], [])
       posDts    = [getIdentifier x | DtNode x    <- posNodes]
-      posItfs   = [getIdentifier x | ItfNode x   <- posNodes]
-      posItfAls = [getIdentifier x | ItfAlNode x <- posNodes] in
+      posInterfaces   = [getIdentifier x | InterfaceNode x   <- posNodes]
+      posInterfaceAls = [getIdentifier x | InterfaceAlNode x <- posNodes] in
   (map (concretiseEpsInDataT posDts) dts,
-   map (concretiseEpsInItf   posItfs) itfs,
-   map (concretiseEpsInItfAl posItfAls) itfAls)
+   map (concretiseEpsInInterface   posInterfaces) itfs,
+   map (concretiseEpsInInterfaceAl posInterfaceAls) itfAls)
   where
 
   nodes :: [Node]
-  nodes = map DtNode dts ++ map ItfNode itfs ++ map ItfAlNode itfAls
+  nodes = map DtNode dts ++ map InterfaceNode itfs ++ map InterfaceAlNode itfAls
 
   resolveDataId :: Identifier -> Maybe Node
   resolveDataId x = case [DtNode d | DtNode d <- nodes, getIdentifier d == x] of
@@ -62,11 +62,11 @@ concretiseEps dts itfs itfAls =
                       _   -> Nothing
   -- TODO: LC: Use Map datastructure
 
-  resolveItfId :: Identifier -> Maybe Node
-  resolveItfId x = case ([i | ItfNode i <- nodes, getIdentifier i == x],
-                         [i | ItfAlNode i <- nodes, getIdentifier i == x]) of
-                     ([i], []) -> Just $ ItfNode i
-                     ([], [i]) -> Just $ ItfAlNode i
+  resolveInterfaceId :: Identifier -> Maybe Node
+  resolveInterfaceId x = case ([i | InterfaceNode i <- nodes, getIdentifier i == x],
+                         [i | InterfaceAlNode i <- nodes, getIdentifier i == x]) of
+                     ([i], []) -> Just $ InterfaceNode i
+                     ([], [i]) -> Just $ InterfaceAlNode i
                      _ -> Nothing
 
   -- Given graph (undecided-nodes, positive-nodes, negative-nodes), decide
@@ -118,49 +118,49 @@ concretiseEps dts itfs itfAls =
      The tvs parameter hold the locally introduced value type variables. It
      serves the following purpose: If an identifier is encountered, we cannot be
      sure if it was correctly determined as either data type or local type
-     variable. This is the exact same issue to deal with as in refineVType,
-     now in hasEpsVType -}
+     variable. This is the exact same issue to deal with as in refineValueType,
+     now in hasEpsValueType -}
 
   hasEpsNode :: Node -> HasEps
   hasEpsNode node = case node of (DtNode dt) -> hasEpsDataT dt
-                                 (ItfNode itf) -> hasEpsItf itf
-                                 (ItfAlNode itfAl) -> hasEpsItfAl itfAl
+                                 (InterfaceNode itf) -> hasEpsInterface itf
+                                 (InterfaceAlNode itfAl) -> hasEpsInterfaceAl itfAl
 
   hasEpsDataT :: DataT Raw -> HasEps
   hasEpsDataT (DT _ ps ctrs a) = if ("£", ET) `elem` ps then HasEps
                                  else let tvs = [x | (x, VT) <- ps] in
                                       anyHasEps (map (hasEpsCtr tvs) ctrs)
 
-  hasEpsItf :: Itf Raw -> HasEps
-  hasEpsItf (Itf _ ps cmds a) = if ("£", ET) `elem` ps then HasEps
+  hasEpsInterface :: Interface Raw -> HasEps
+  hasEpsInterface (MkInterface _ ps cmds a) = if ("£", ET) `elem` ps then HasEps
                                 else let tvs = [x | (x, VT) <- ps] in
                                      anyHasEps (map (hasEpsCmd tvs) cmds)
 
-  hasEpsItfAl :: ItfAlias Raw -> HasEps
-  hasEpsItfAl (ItfAlias _ ps itfMap a) = if ("£", ET) `elem` ps then HasEps
+  hasEpsInterfaceAl :: InterfaceAlias Raw -> HasEps
+  hasEpsInterfaceAl (MkInterfaceAlias _ ps itfMap a) = if ("£", ET) `elem` ps then HasEps
                                          else let tvs = [x | (x, VT) <- ps] in
-                                              hasEpsItfMap tvs itfMap
+                                              hasEpsInterfaceMap tvs itfMap
 
   hasEpsCmd :: [Identifier] -> Cmd Raw -> HasEps
   hasEpsCmd tvs (Cmd _ ps ts t a) = let tvs' = tvs ++ [x | (x, VT) <- ps] in
-                                    anyHasEps $ map (hasEpsVType tvs') ts ++ [hasEpsVType tvs' t]
+                                    anyHasEps $ map (hasEpsValueType tvs') ts ++ [hasEpsValueType tvs' t]
 
   hasEpsCtr :: [Identifier] -> Ctr Raw -> HasEps
-  hasEpsCtr tvs (Ctr _ ts a) = anyHasEps (map (hasEpsVType tvs) ts)
+  hasEpsCtr tvs (Ctr _ ts a) = anyHasEps (map (hasEpsValueType tvs) ts)
 
-  hasEpsVType :: [Identifier] -> VType Raw -> HasEps
-  hasEpsVType tvs (DTTy x ts a) =
+  hasEpsValueType :: [Identifier] -> ValueType Raw -> HasEps
+  hasEpsValueType tvs (DTTy x ts a) =
     if x `elem` dtIds then hasEpsDTTy tvs x ts                   -- indeed data type
-                      else anyHasEps $ map (hasEpsTyArg tvs) ts  -- ... or not (but type var)
+                      else anyHasEps $ map (hasEpsTypeArg tvs) ts  -- ... or not (but type var)
     where dtIds = [getIdentifier d | DtNode d <- nodes]
-  hasEpsVType tvs (SCTy ty a)   = hasEpsCType tvs ty
-  hasEpsVType tvs (TVar x a)    = if x `elem` tvs then hasNoEps      -- indeed type variable
+  hasEpsValueType tvs (SCTy ty a)   = hasEpsCompType tvs ty
+  hasEpsValueType tvs (TVar x a)    = if x `elem` tvs then hasNoEps      -- indeed type variable
                                                   else hasEpsDTTy tvs x [] -- ... or not (but data type)
-  hasEpsVType tvs (StringTy _)  = hasNoEps
-  hasEpsVType tvs (IntTy _)     = hasNoEps
-  hasEpsVType tvs (CharTy _)    = hasNoEps
+  hasEpsValueType tvs (StringTy _)  = hasNoEps
+  hasEpsValueType tvs (IntTy _)     = hasNoEps
+  hasEpsValueType tvs (CharTy _)    = hasNoEps
 
-  hasEpsDTTy :: [Identifier] -> Identifier -> [TyArg Raw] -> HasEps
+  hasEpsDTTy :: [Identifier] -> Identifier -> [TypeArg Raw] -> HasEps
   hasEpsDTTy tvs x ts =
     -- An datatype x gives only rise to adding an eps if the number of ty
     -- args are exactly as required by x. Thus, if x has an additional
@@ -168,77 +168,81 @@ concretiseEps dts itfs itfAls =
     case resolveDataId x of
       Just x' -> let
         dtHE   = [HasEpsIfAny [x'] | isDtWithNArgs x' (length ts)]
-        argsHE = map (hasEpsTyArg tvs) ts
+        argsHE = map (hasEpsTypeArg tvs) ts
         in anyHasEps (dtHE ++ argsHE)
       Nothing -> hasNoEps
     where isDtWithNArgs :: Node -> Int -> Bool
           isDtWithNArgs (DtNode (DT _ ps _ _)) n = length ps == n
 
 
-  hasEpsCType :: [Identifier] -> CType Raw -> HasEps
-  hasEpsCType tvs (CType ports peg a) = anyHasEps $ map (hasEpsPort tvs) ports ++ [hasEpsPeg tvs peg]
+  hasEpsCompType :: [Identifier] -> CompType Raw -> HasEps
+  hasEpsCompType tvs (CompType ports peg a) = anyHasEps $ map (hasEpsPort tvs) ports ++ [hasEpsPeg tvs peg]
 
   hasEpsPort :: [Identifier] -> Port Raw -> HasEps
-  hasEpsPort tvs (Port adjs ty a) = anyHasEps [anyHasEps (map (hasEpsAdj tvs) adjs), hasEpsVType tvs ty]
+  hasEpsPort tvs (Port adjs ty a) = anyHasEps [anyHasEps (map (hasEpsAdj tvs) adjs), hasEpsValueType tvs ty]
 
   hasEpsAdj :: [Identifier] -> Adjustment Raw -> HasEps
-  hasEpsAdj tvs (ConsAdj x ts a) = anyHasEps (map (hasEpsTyArg tvs) ts)
+  hasEpsAdj tvs (ConsAdj x ts a) = anyHasEps (map (hasEpsTypeArg tvs) ts)
   hasEpsAdj _ (AdaptorAdj _ _) = hasNoEps
 
   hasEpsPeg :: [Identifier] -> Peg Raw -> HasEps
-  hasEpsPeg tvs (Peg ab ty a) = anyHasEps [hasEpsAb tvs ab, hasEpsVType tvs ty]
+  hasEpsPeg tvs (Peg ab ty a) = anyHasEps [hasEpsAb tvs ab, hasEpsValueType tvs ty]
 
   hasEpsAb :: [Identifier] -> Ab Raw -> HasEps
-  hasEpsAb tvs (Ab v m a) = anyHasEps [hasEpsAbMod tvs v, hasEpsItfMap tvs m]
+  hasEpsAb tvs (Ab v m a) = anyHasEps [hasEpsAbMod tvs v, hasEpsInterfaceMap tvs m]
 
-  hasEpsItfMap :: [Identifier] -> ItfMap Raw -> HasEps
-  hasEpsItfMap tvs mp@(ItfMap m _) =
+  hasEpsInterfaceMap :: [Identifier] -> InterfaceMap Raw -> HasEps
+  hasEpsInterfaceMap tvs mp@(InterfaceMap m _) =
     let -- An interface i gives only rise to adding an eps if the number of ty
         -- args are exactly as required by i. Thus, if i has an additional
         -- implicit eps, it should be given as an additional parameter here, too
-        itfsHE = map hasEpsInst (flattenItfMap mp)
-        argsHE = (map (hasEpsTyArg tvs) . concat . concatMap bwd2fwd . M.elems) m
+        itfsHE = map hasEpsInst (flattenInterfaceMap mp)
+        argsHE = (map (hasEpsTypeArg tvs) . concat . concatMap bwd2fwd . M.elems) m
     in anyHasEps (itfsHE ++ argsHE)
-    where flattenItfMap :: ItfMap t -> [(Identifier, [TyArg t])]
-          flattenItfMap (ItfMap m _) = concatMap (\(i, insts) -> map (i,) (bwd2fwd insts)) (M.toList m)
+    where flattenInterfaceMap :: InterfaceMap t -> [(Identifier, [TypeArg t])]
+          flattenInterfaceMap (InterfaceMap m _) = concatMap (\(i, insts) -> map (i,) (bwd2fwd insts)) (M.toList m)
 
-          hasEpsInst :: (Identifier, [TyArg Raw]) -> HasEps
-          hasEpsInst (i, inst) = case resolveItfId i of
-            Just x -> if isItfWithNArgs x (length inst) then HasEpsIfAny [x] else hasNoEps
+          hasEpsInst :: (Identifier, [TypeArg Raw]) -> HasEps
+          hasEpsInst (i, inst) = case resolveInterfaceId i of
+            Just x -> if isInterfaceWithNArgs x (length inst) then HasEpsIfAny [x] else hasNoEps
             _ -> hasNoEps
 
-          isItfWithNArgs :: Node -> Int -> Bool
-          isItfWithNArgs (ItfNode (Itf _ ps _ _))        n = length ps == n
-          isItfWithNArgs (ItfAlNode (ItfAlias _ ps _ _)) n = length ps == n
+          isInterfaceWithNArgs :: Node -> Int -> Bool
+          isInterfaceWithNArgs (InterfaceNode (MkInterface _ ps _ _))        n = length ps == n
+          isInterfaceWithNArgs (InterfaceAlNode (MkInterfaceAlias _ ps _ _)) n = length ps == n
 
   hasEpsAbMod :: [Identifier] -> AbMod Raw -> HasEps
   hasEpsAbMod tvs (EmpAb _)     = hasNoEps
   hasEpsAbMod tvs (AbVar "£" _) = HasEps
   hasEpsAbMod tvs (AbVar _ _)   = hasNoEps
 
-  hasEpsTyArg :: [Identifier] -> TyArg Raw -> HasEps
-  hasEpsTyArg tvs (VArg t _)  = hasEpsVType tvs t
-  hasEpsTyArg tvs (EArg ab _) = hasEpsAb tvs ab
+  hasEpsTypeArg :: [Identifier] -> TypeArg Raw -> HasEps
+  hasEpsTypeArg tvs (VArg t _)  = hasEpsValueType tvs t
+  hasEpsTypeArg tvs (EArg ab _) = hasEpsAb tvs ab
 
 concretiseEpsInDataT :: [Identifier] -> DataT Raw -> DataT Raw
 concretiseEpsInDataT posIds (DT dt ps ctrs a) = DT dt ps' ctrs a where
   ps' = if ("£", ET) `notElem` ps && dt `elem` posIds then ps ++ [("£", ET)] else ps
 
-concretiseEpsInItf :: [Identifier] -> Itf Raw -> Itf Raw
-concretiseEpsInItf posIds (Itf itf ps cmds a) = Itf itf ps' cmds a where
+concretiseEpsInInterface :: [Identifier] -> Interface Raw -> Interface Raw
+concretiseEpsInInterface posIds (MkInterface itf ps cmds a) = MkInterface itf ps' cmds a where
   ps' = if ("£", ET) `notElem` ps && itf `elem` posIds then ps ++ [("£", ET)] else ps
 
-concretiseEpsInItfAl :: [Identifier] -> ItfAlias Raw -> ItfAlias Raw
-concretiseEpsInItfAl posIds (ItfAlias itfAl ps itfMap a) = ItfAlias itfAl ps' itfMap a where
-  ps' = if ("£", ET) `notElem` ps && itfAl `elem` posIds then ps ++ [("£", ET)] else ps
+concretiseEpsInInterfaceAl :: [Identifier] -> InterfaceAlias Raw -> InterfaceAlias Raw
+concretiseEpsInInterfaceAl posIds (MkInterfaceAlias itfAl ps itfMap a) =
+  MkInterfaceAlias itfAl ps' itfMap a
+  where
+    ps' = if ("£", ET) `notElem` ps && itfAl `elem` posIds
+          then ps ++ [("£", ET)]
+          else ps
 
 {- This function adds an implicit [£|] *argument* if the type signature
    requires it. -}
 
-concretiseEpsArg :: [(Identifier, Kind)] -> [TyArg Raw] -> Raw -> [TyArg Raw]
+concretiseEpsArg :: [(Identifier, Kind)] -> [TypeArg Raw] -> Raw -> [TypeArg Raw]
 concretiseEpsArg ps ts a = if length ps == length ts + 1 &&
                               (snd (ps !! length ts) == ET)
-                           then ts ++ [EArg (Ab (AbVar "£" a) (ItfMap M.empty a) a) a]
+                           then ts ++ [EArg (Ab (AbVar "£" a) (InterfaceMap M.empty a) a) a]
                            else ts
 
 {- Helper functions -}

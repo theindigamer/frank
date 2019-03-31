@@ -15,7 +15,7 @@ import Syntax
 
 type Refine = ExceptT String (State RState)
 
-type TVarMap = M.Map Identifier (VType Raw)
+type TVarMap = M.Map Identifier (ValueType Raw)
 type EVarSet = S.Set Identifier
 
 -- generic object-int pair
@@ -23,7 +23,7 @@ type IPair = (Identifier, Int)
 -- data type id is mapped to rigid data type (RDT) variables (for polymorphic data types)
 type DataTypeMap = M.Map Identifier [(Identifier, Kind)]                      -- dt-id     -> [ty-vars]
 type IFMap = M.Map Identifier [(Identifier, Kind)]                      -- itf-id    -> [ty-vars]
-type IFAliasesMap = M.Map Identifier ([(Identifier, Kind)], ItfMap Raw) -- itf-al-id -> ([ty-vars], itf's -> itf-instant's)
+type IFAliasesMap = M.Map Identifier ([(Identifier, Kind)], InterfaceMap Raw) -- itf-al-id -> ([ty-vars], itf's -> itf-instant's)
 
 data TopLevelCtxt = Interface | InterfaceAlias | Datatype | Handler
   deriving (Show, Eq)
@@ -34,7 +34,7 @@ data RState = MkRState { interfaces :: IFMap
                        , handlers :: [IPair]              -- handler Id -> # of arguments
                        , ctrs :: [IPair]                  -- constructor Id -> # of arguments
                        , cmds :: [IPair]                  -- command Id -> # of arguments
-                       , tmap :: TVarMap                  -- type var Id ->   VType Raw     val ty vars of current context
+                       , tmap :: TVarMap                  -- type var Id ->   ValueType Raw     val ty vars of current context
                        , evmap :: EVarSet                 -- effect var Id                  eff ty vars of current context
                        , tlctxt :: Maybe TopLevelCtxt }
 
@@ -44,19 +44,21 @@ getRState = get
 putRState :: RState -> Refine ()
 putRState = put
 
-putRItfs :: IFMap -> Refine ()
-putRItfs xs = do s <- getRState
-                 putRState $ s { interfaces = xs }
+putRInterfaces :: IFMap -> Refine ()
+putRInterfaces xs = do
+  s <- getRState
+  putRState $ s { interfaces = xs }
 
-getRItfs :: Refine IFMap
-getRItfs = interfaces <$> getRState
+getRInterfaces :: Refine IFMap
+getRInterfaces = interfaces <$> getRState
 
-putRItfAliases :: IFAliasesMap -> Refine ()
-putRItfAliases xs = do s <- getRState
-                       putRState $ s {interfaceAliases = xs }
+putRInterfaceAliases :: IFAliasesMap -> Refine ()
+putRInterfaceAliases xs = do
+  s <- getRState
+  putRState $ s {interfaceAliases = xs }
 
-getRItfAliases :: Refine IFAliasesMap
-getRItfAliases = interfaceAliases <$> getRState
+getRInterfaceAliases :: Refine IFAliasesMap
+getRInterfaceAliases = interfaceAliases <$> getRState
 
 putRDTs :: DataTypeMap -> Refine ()
 putRDTs m = do s <- getRState

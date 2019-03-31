@@ -31,9 +31,9 @@ testShonky = unlines
 
 type Compile = State CState
 
-type ItfCmdMap = M.Map Identifier [Identifier]
+type InterfaceCmdMap = M.Map Identifier [Identifier]
 
-data CState = MkCState { imap :: ItfCmdMap
+data CState = MkCState { imap :: InterfaceCmdMap
                        , atoms :: S.Set String}
 
 initCState :: CState
@@ -61,21 +61,21 @@ compileToFile p dst = writeFile (dst ++ ".uf") (show $ ppProgShonky $ compile p)
 compile :: Program Desugared -> [S.Def S.Exp]
 compile (MkProgram xs) = res
   where res = reverse $ evalState (compile' xs) st
-        st = initialiseItfMap initCState [i | ItfTerm i _ <- xs]
+        st = initialiseInterfaceMap initCState [i | InterfaceTerm i _ <- xs]
 
 compile' :: [TopTerm Desugared] -> Compile [S.Def S.Exp]
 compile' xs = concat <$> mapM compileTopTerm xs
 
-initialiseItfMap :: CState -> [Itf Desugared] -> CState
-initialiseItfMap st xs = st { imap = foldl f (imap st) xs }
-  where f m (Itf id _ xs _) = foldl (ins id) m xs
+initialiseInterfaceMap :: CState -> [Interface Desugared] -> CState
+initialiseInterfaceMap st xs = st { imap = foldl f (imap st) xs }
+  where f m (MkInterface id _ xs _) = foldl (ins id) m xs
         ins itf m (Cmd cmd _ _ _ _) =
           let xs = M.findWithDefault [] itf m in
           M.insert itf (cmd : xs) m
 
 compileTopTerm :: TopTerm Desugared -> Compile [S.Def S.Exp]
 compileTopTerm (DataTerm x _) = compileDatatype x
-compileTopTerm (DefTerm x@(Def ident _ _ _) _) =
+compileTopTerm (DefTerm x@(MkDef ident _ _ _) _) =
   if isBuiltin ident
   then return []
   else (:[]) <$> compileMultiHandlerDefinition x
@@ -107,13 +107,13 @@ compileCtr (Ctr ident ts _) =
 -- use the type to generate the signature of commands handled
 -- generate a clause 1-to-1 correspondence
 compileMultiHandlerDefinition :: MultiHandlerDefinition Desugared -> Compile (S.Def S.Exp)
-compileMultiHandlerDefinition (Def id ty xs _) =
+compileMultiHandlerDefinition (MkDef id ty xs _) =
   do xs' <- mapM compileClause xs
-     tyRep <- compileCType ty
+     tyRep <- compileCompType ty
      return $ S.DF id tyRep xs'
 
-compileCType :: CType Desugared -> Compile [([S.Adap], [String])]
-compileCType (CType xs _ _) = mapM compilePort xs
+compileCompType :: CompType Desugared -> Compile [([S.Adap], [String])]
+compileCompType (CompType xs _ _) = mapM compilePort xs
 
 compilePort :: Port Desugared -> Compile ([S.Adap], [String])
 compilePort p@(Port adjs _ _) =
@@ -128,9 +128,10 @@ compilePort p@(Port adjs _ _) =
      return (zip rencmds rens, cmds)
 
 compileClause :: Clause Desugared -> Compile ([S.Pat], S.Exp)
-compileClause (Cls ps tm _) = do ps' <- mapM compilePattern ps
-                                 e <- compileTerm tm
-                                 return (ps', e)
+compileClause (MkClause ps tm _) = do
+  ps' <- mapM compilePattern ps
+  e <- compileTerm tm
+  return (ps', e)
 
 compilePattern :: Pattern Desugared -> Compile S.Pat
 compilePattern (VPat x _) = S.PV <$> compileVPat x

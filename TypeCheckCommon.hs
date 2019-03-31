@@ -22,12 +22,12 @@ newtype Contextual a = Contextual
 --                                                         Exceptions possible
 --                                (Except String) o FreshMT o (StateT TCState) a
 
-type IdCmdInfoMap = M.Map Identifier (Identifier, [TyArg Desugared], [TyArg Desugared], [VType Desugared], VType Desugared)
+type IdCmdInfoMap = M.Map Identifier (Identifier, [TypeArg Desugared], [TypeArg Desugared], [ValueType Desugared], ValueType Desugared)
 --                        cmd-id      itf-id      itf-ty-vars        cmd-ty-vars        cmd-arg-tys        cmd-ret-ty
 --                                                (as MkRTVar's or
 --                                                     MkAbRVar's)
 
-type CtrInfoMap = M.Map Identifier (Identifier, [TyArg Desugared], [VType Desugared])
+type CtrInfoMap = M.Map Identifier (Identifier, [TypeArg Desugared], [ValueType Desugared])
 --                      ctr-id      dt-id       dt-ty-vars         cmd-arg-tys
 --                                              (as MkRTVar's or
 --                                                 MkAbRVar's)
@@ -52,15 +52,15 @@ instance MonadFail Contextual where
   fail = throwError
 
 data Entry = FlexMVar Identifier Decl
-           | TermVar (Operator Desugared) (VType Desugared)
+           | TermVar (Operator Desugared) (ValueType Desugared)
            | Mark
            deriving (Show)
 data Decl = Hole
-          | TyDefn (VType Desugared)
+          | TyDefn (ValueType Desugared)
           | AbDefn (Ab Desugared)
           deriving (Show)
 type Context = Bwd Entry
-type TermBinding = (Operator Desugared, VType Desugared)
+type TermBinding = (Operator Desugared, ValueType Desugared)
 type Suffix = [(Identifier, Decl)]
 
 -- push fresh meta variable on context (corresponds to "freshMeta" in Gundry's thesis)
@@ -71,9 +71,9 @@ freshMVar x = do n <- fresh
                  return s
 
 -- free meta variables (MkFTVar's, MkAbFVar's)
-fmv :: VType Desugared -> S.Set Identifier
-fmv (DTTy _ ts _) = foldMap fmvTyArg ts
-fmv (SCTy cty _) = fmvCType cty
+fmv :: ValueType Desugared -> S.Set Identifier
+fmv (DTTy _ ts _) = foldMap fmvTypeArg ts
+fmv (SCTy cty _) = fmvCompType cty
 fmv (FTVar x _) = S.singleton x
 fmv (RTVar x _) = S.empty
 fmv (StringTy _) = S.empty
@@ -81,11 +81,11 @@ fmv (IntTy _) = S.empty
 fmv (CharTy _) = S.empty
 
 fmvAb :: Ab Desugared -> S.Set Identifier
-fmvAb (Ab v (ItfMap m _) _) = S.union (fmvAbMod v) (foldMap (foldMap (foldMap fmvTyArg)) (M.elems m))
+fmvAb (Ab v (InterfaceMap m _) _) = S.union (fmvAbMod v) (foldMap (foldMap (foldMap fmvTypeArg)) (M.elems m))
 
-fmvTyArg :: TyArg Desugared -> S.Set Identifier
-fmvTyArg (VArg t _) = fmv t
-fmvTyArg (EArg ab _) = fmvAb ab
+fmvTypeArg :: TypeArg Desugared -> S.Set Identifier
+fmvTypeArg (VArg t _) = fmv t
+fmvTypeArg (EArg ab _) = fmvAb ab
 
 fmvAbMod :: AbMod Desugared -> S.Set Identifier
 fmvAbMod (EmpAb _) = S.empty
@@ -93,10 +93,10 @@ fmvAbMod (AbRVar _ _) = S.empty
 fmvAbMod (AbFVar x _) = S.singleton x
 
 fmvAdj :: Adjustment Desugared -> S.Set Identifier
-fmvAdj (ConsAdj x ts _) = foldMap fmvTyArg ts
+fmvAdj (ConsAdj x ts _) = foldMap fmvTypeArg ts
 
-fmvCType :: CType Desugared -> S.Set Identifier
-fmvCType (CType ps q _) = S.union (foldMap fmvPort ps) (fmvPeg q)
+fmvCompType :: CompType Desugared -> S.Set Identifier
+fmvCompType (CompType ps q _) = S.union (foldMap fmvPort ps) (fmvPeg q)
 
 fmvPeg :: Peg Desugared -> S.Set Identifier
 fmvPeg (Peg ab ty _) = S.union (fmvAb ab) (fmv ty)
@@ -147,7 +147,7 @@ purgeMarks = do s <- get
         skim n (es :< Mark) = skim (n-1) es
         skim n (es :< _) = skim n es
 
-getCmd :: Identifier -> Contextual (Identifier, [TyArg Desugared], [TyArg Desugared], [VType Desugared], VType Desugared)
+getCmd :: Identifier -> Contextual (Identifier, [TypeArg Desugared], [TypeArg Desugared], [ValueType Desugared], ValueType Desugared)
 getCmd cmd = get >>= \s -> case M.lookup cmd (cmdMap s) of
   Nothing -> error $ "invariant broken: " ++ show cmd ++ " not a command"
   Just (itf, qs, rs, xs, y) -> return (itf, qs, rs, xs, y)
@@ -157,7 +157,7 @@ getCmdTyVars cmd = do
   (_, _, cmdTyVars, _, _) <- getCmd cmd
   return $ map filterTyVar cmdTyVars
   where
-    filterTyVar :: TyArg Desugared -> Identifier
+    filterTyVar :: TypeArg Desugared -> Identifier
     filterTyVar (VArg (RTVar x _) _) = x
     filterTyVar (EArg (Ab (AbRVar x _) _ _) _) = x
     -- TODO: LC: This is a terrible invariant: refactor the way in which commands
@@ -181,7 +181,7 @@ modify f = do ctx <- getContext
 initContextual :: Program Desugared -> Contextual (Program Desugared)
 initContextual (MkProgram ttms) =
   do mapM_ f [d | DataTerm d _ <- ttms] -- init ctrMap
-     mapM_ g [i | ItfTerm i _ <- ttms]   -- init cmdMap
+     mapM_ g [i | InterfaceTerm i _ <- ttms]   -- init cmdMap
      mapM_ h [d | DefTerm d _ <- ttms]    -- init ctx with [hdr: hdr-type]
      return (MkProgram ttms)
   where -- data dt p_1 ... p_n = ctr_1 x_11 ... x_1m
@@ -196,25 +196,25 @@ initContextual (MkProgram ttms) =
         --   cmd_1 q_11 ... q_1n: x_11 -> ... -> q_1l -> y_1
         -- | ...
         -- For each cmd_i add to ctrMap: cmd_i -> (itf, itf-ty-vars, cmd-ty-vars, xs_i, y_i)
-        g :: Itf Desugared -> Contextual ()
-        g (Itf itf ps cmds _) =
+        g :: Interface Desugared -> Contextual ()
+        g (MkInterface itf ps cmds _) =
           let ps' = map tyVar2rigTyVarArg ps in
             mapM_ (\(Cmd cmd qs xs y _) -> addCmd cmd itf ps' (map tyVar2rigTyVarArg qs) xs y) cmds
 
         -- init context for each handler id of type ty with "id := ty"
         h :: MultiHandlerDefinition Desugared -> Contextual ()
-        h (Def id ty _ a) = modify (:< TermVar (Poly id a) (SCTy ty a))
+        h (MkDef id ty _ a) = modify (:< TermVar (Poly id a) (SCTy ty a))
 
 initTCState :: TCState
-initTCState = MkTCState BEmp (Ab (EmpAb a) (ItfMap M.empty a) a) M.empty M.empty []
+initTCState = MkTCState BEmp (Ab (EmpAb a) (InterfaceMap M.empty a) a) M.empty M.empty []
   where a = Desugared Generated
 
 -- Only to be used for initialising the contextual monad
-addCmd :: Identifier -> Identifier -> [TyArg Desugared] -> [TyArg Desugared] -> [VType Desugared] -> VType Desugared -> Contextual ()
+addCmd :: Identifier -> Identifier -> [TypeArg Desugared] -> [TypeArg Desugared] -> [ValueType Desugared] -> ValueType Desugared -> Contextual ()
 addCmd cmd itf ps qs xs q = get >>= \s ->
   put $ s { cmdMap = M.insert cmd (itf, ps, qs, xs, q) (cmdMap s) }
 
-addCtr :: Identifier -> Identifier -> [TyArg Desugared] -> [VType Desugared] -> Contextual ()
+addCtr :: Identifier -> Identifier -> [TypeArg Desugared] -> [ValueType Desugared] -> Contextual ()
 addCtr dt     ctr     ts         xs         = get >>= \s ->
 --     dt-id  ctr-id  type-args  value-args
   put $ s { ctrMap = M.insert ctr (dt,ts,xs) (ctrMap s) }
@@ -244,5 +244,5 @@ expandAb :: Ab Desugared -> Contextual (Ab Desugared)
 expandAb (Ab v m a) =  do
   ab <- findAbVar v
   case ab of
-    Just (Ab v' m' a') -> expandAb $ Ab v' (m' `plusItfMap` m) a
+    Just (Ab v' m' a') -> expandAb $ Ab v' (m' `plusInterfaceMap` m) a
     Nothing ->            return $ Ab v m a

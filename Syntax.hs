@@ -19,6 +19,8 @@ import BwdFwd
 
 import Shonky.Renaming
 
+{-# ANN module "HLint: ignore Use camelCase" #-}
+
 --------------------------------------------------------------------------------
 -- * Elementary definitions
 
@@ -106,6 +108,9 @@ implicitNear v = case getSource v of
 --
 -- GADTs are used to enforce the fact that only certain constructors are present
 -- at different stages.
+--
+-- We use @syn@ as the type variable for the "syntax state".
+-- So, @syn@ will be one of 'Raw', 'Refined', or 'Desugared'.
 
 -- | Output from the parser
 newtype Raw = Raw Source
@@ -118,6 +123,8 @@ instance NotRaw () where
 instance NotRaw (AnnotT a Identity ()) where
 instance NotRaw Desugared where
 instance NotRaw Refined where
+
+type IsNotRaw t = NotRaw (t Identity ())
 
 -- | Well-formed AST, after tidying up the output from the parser.
 newtype Refined = Refined Source
@@ -142,44 +149,56 @@ newtype Desugared = Desugared Source
 -- Parts of the grammar are specific to raw/refined/desugared syntax.
 -- The following markings are used:
 -- - require Raw/Refined/Desugared:   t = AnnotT Raw
--- - require NotRaw / NotDesugared:   NotRaw (t Identity ()) =>   annotation
+-- - require NotRaw / NotDesugared:   IsNotRaw t =>   annotation
 
+-- | The program is just a list of terms.
 newtype Program t = MkProgram [TopTerm t]
   deriving (Show, Eq)
 
+----------------------------------------------------------------------
+-- ** Nodes specific to Raw syntax.
+
 -- | A top-level multihandler signature and clause.
 data MultiHandlerSignatureF :: Transformer -> * -> * where
-  MkSig :: Identifier -> CType Raw -> MultiHandlerSignatureF (AnnotT Raw) r
+  MkMultiHandlerSignature
+    :: Identifier -> CompType Raw -> MultiHandlerSignatureF (AnnotT Raw) r
 
 deriving instance
   (Show r, Show (TFix t MultiHandlerSignatureF)) => Show (MultiHandlerSignatureF t r)
 deriving instance
   (Eq r, Eq (TFix t MultiHandlerSignatureF)) => Eq (MultiHandlerSignatureF t r)
 
-type MultiHandlerSignature a = AnnotTFix a MultiHandlerSignatureF
+type MultiHandlerSignature p = AnnotTFix p MultiHandlerSignatureF
 
-pattern Sig x cty a = MkFix (MkAnnotT (MkSig x cty, a))
+pattern MkSig :: syn ~ Raw => Identifier -> CompType Raw -> syn -> MultiHandlerSignature syn
+pattern MkSig x cty a = MkFix (MkAnnotT (MkMultiHandlerSignature x cty, a))
 
-instance HasIdentifier (MultiHandlerSignature t) where
-  getIdentifier (Sig x _ _) = x
+instance syn ~ Raw => HasIdentifier (MultiHandlerSignature syn) where
+  getIdentifier (MkSig x _ _) = x
 
-data MHClsF :: Transformer -> * -> * where
-  MkMHCls :: Identifier -> Clause Raw -> MHClsF (AnnotT Raw) r
+data MultiHandlerClauseF :: Transformer -> * -> * where
+  MkMultiHandlerClause
+    :: Identifier -> Clause Raw -> MultiHandlerClauseF (AnnotT Raw) r
 
 deriving instance
-  (Show r, Show (TFix t MHClsF)) => Show (MHClsF t r)
+  (Show r, Show (TFix t MultiHandlerClauseF)) => Show (MultiHandlerClauseF t r)
 deriving instance
-  (Eq r, Eq (TFix t MHClsF)) => Eq (MHClsF t r)
+  (Eq r, Eq (TFix t MultiHandlerClauseF)) => Eq (MultiHandlerClauseF t r)
 
-type MHCls a = AnnotTFix a MHClsF
+type MultiHandlerClause a = AnnotTFix a MultiHandlerClauseF
 
-pattern MHCls x cls a = MkFix (MkAnnotT (MkMHCls x cls, a))
+pattern MkMHClause :: syn ~ Raw => Identifier -> Clause Raw -> syn -> MultiHandlerClause syn
+pattern MkMHClause x cls a = MkFix (MkAnnotT (MkMultiHandlerClause x cls, a))
 
-instance HasIdentifier (MHCls t) where
-  getIdentifier (MHCls x _ _) = x
+instance syn ~ Raw => HasIdentifier (MultiHandlerClause syn) where
+  getIdentifier (MkMHClause x _ _) = x
 
-{---------------}
-{- Parts of the grammar specific to the refined syntax. -}
+----------------------------------------------------------------------
+-- ** Nodes specific to Refined syntax.
+
+------------------------------------------------------------
+-- *** Multi-handler definitions
+-- NOTE: Multi-handler here = "operator" in the paper.
 
 -- FIXME: currently all top-level bindings are mutually
 -- recursive. This setup will break if we add non-recursive value
@@ -191,17 +210,18 @@ instance HasIdentifier (MHCls t) where
 -- Data and interface definitions can continue to be globally mutually
 -- recursive as they do not depend on values.
 
--- a recursive multihandler definition
 data MultiHandlerDefinitionF :: Transformer -> * -> * where
-  MkDef :: Identifier
-        -> TFix t CTypeF
-        -> [TFix t ClauseF]
-        -> MultiHandlerDefinitionF t r
-
-{-# ANN module "HLint: ignore Use camelCase" #-}
+  MkMultiHandlerDefinition
+    :: Identifier
+    -> TFix t CompTypeF
+    -> [TFix t ClauseF]
+    -> MultiHandlerDefinitionF t r
 
 type MultiHandlerDefinitionF_ClassReq (c :: Type -> Constraint) r t
-  = (c r, c (TFix t CTypeF), c (TFix t ClauseF), c (TFix t MultiHandlerDefinitionF))
+  = ( c (TFix t CompTypeF)
+    , c (TFix t ClauseF)
+    , c r, c (TFix t MultiHandlerDefinitionF)
+    )
 
 deriving instance
   MultiHandlerDefinitionF_ClassReq Show r t => Show (MultiHandlerDefinitionF t r)
@@ -210,13 +230,16 @@ deriving instance
 
 type MultiHandlerDefinition a = AnnotTFix a MultiHandlerDefinitionF
 
-pattern Def x cty clss a = MkFix (MkAnnotT (MkDef x cty clss, a))
+pattern MkDef :: Identifier -> CompType syn -> [Clause syn] -> syn -> MultiHandlerDefinition syn
+pattern MkDef x cty clss a = MkFix (MkAnnotT (MkMultiHandlerDefinition x cty clss, a))
 
 instance HasIdentifier (MultiHandlerDefinition t) where
-  getIdentifier (Def x _ _ _) = x
+  getIdentifier (MkDef x _ _ _) = x
 
--- | MultiHandler here = "operator" in the paper.
+------------------------------------------------------------
+-- *** Operators
 -- Operator here doesn't have a name in the paper, it is a subset of Uses.
+
 data OperatorF :: Transformer -> * -> * where
   -- | Monotypic (just variable)
   MkMono          :: Identifier -> OperatorF t r
@@ -234,40 +257,51 @@ pattern Mono x a = MkFix (MkAnnotT (MkMono x, a))
 pattern Poly x a = MkFix (MkAnnotT (MkPoly x, a))
 pattern CmdIdentifier x a = MkFix (MkAnnotT (MkCmdIdentifier x, a))
 
+------------------------------------------------------------
+-- *** Data constructors
+
 data DataConF :: Transformer -> * -> * where
   MkDataCon :: Identifier -> [TFix t TermF] -> DataConF t r
 
 type DataConF_ClassReq (c :: Type -> Constraint) r t
-  = (c r, c (TFix t TermF), c (TFix t DataConF))
+  = ( c (TFix t TermF)
+    , c r, c (TFix t DataConF)
+    )
 
 deriving instance DataConF_ClassReq Show r t => Show (DataConF t r)
 deriving instance DataConF_ClassReq Eq r t   => Eq (DataConF t r)
 
 type DataCon a = AnnotTFix a DataConF
 
+pattern DataCon :: Identifier -> [Term ann] -> ann -> DataCon ann
 pattern DataCon x tms a = MkFix (MkAnnotT (MkDataCon x tms, a))
 
-{---------------}
-{- Parts of the grammar independent of the syntax. -}
+----------------------------------------------------------------------
+-- ** Nodes independent of syntax.
 
--- A raw term collects multihandler signatures and clauses separately. A
+------------------------------------------------------------
+-- *** Top-level terms
+
+-- | A raw term collects multihandler signatures and clauses separately. A
 -- refined top-level term collects multihandler signatures and clauses in
 -- one definition.
-data TopTermF :: Transformer -> * -> * where
-  MkDataTerm :: TFix t DataTF -> TopTermF t r
-  MkItfTerm :: TFix t ItfF -> TopTermF t r
-  MkItfAliasTerm :: TFix t ItfAliasF -> TopTermF t r
-  MkSigTerm :: TFix (AnnotT Raw) MultiHandlerSignatureF -> TopTermF (AnnotT Raw) r
-  MkClsTerm :: TFix (AnnotT Raw) MHClsF -> TopTermF (AnnotT Raw) r
-  MkDefTerm :: NotRaw (t Identity ()) => TFix t MultiHandlerDefinitionF -> TopTermF t r
+data TopTermF :: Transformer -> Type -> Type where
+  MkDataTerm     :: TFix t DataTF    -> TopTermF t r
+  MkInterfaceTerm      :: TFix t InterfaceF      -> TopTermF t r
+  MkInterfaceAliasTerm :: TFix t InterfaceAliasF -> TopTermF t r
+
+  MkSigTerm    :: t ~ AnnotT Raw => TFix t MultiHandlerSignatureF -> TopTermF t r
+  MkMHClauseTerm :: t ~ AnnotT Raw => TFix t MultiHandlerClauseF    -> TopTermF t r
+
+  MkDefTerm    :: IsNotRaw t => TFix t MultiHandlerDefinitionF -> TopTermF t r
   -- MkDefTerm :: NotRaw t => MHDef t -> TopTermF t r
 
 type TopTermF_ClassReq (c :: Type -> Constraint) r t =
   ( c (TFix t DataTF)
-  , c (TFix t ItfF)
-  , c (TFix t ItfAliasF)
+  , c (TFix t InterfaceF)
+  , c (TFix t InterfaceAliasF)
   , c (TFix (AnnotT Raw) MultiHandlerSignatureF)
-  , c (TFix (AnnotT Raw) MHClsF)
+  , c (TFix (AnnotT Raw) MultiHandlerClauseF)
   , c (TFix t MultiHandlerDefinitionF)
   , c r, c (TFix t TopTermF)
   )
@@ -278,34 +312,37 @@ deriving instance TopTermF_ClassReq Eq r t   => Eq (TopTermF t r)
 type TopTerm a = AnnotTFix a TopTermF
 
 pattern DataTerm dt a = MkFix (MkAnnotT (MkDataTerm dt, a))
-pattern ItfTerm itf a = MkFix (MkAnnotT (MkItfTerm itf, a))
-pattern ItfAliasTerm itfAl a = MkFix (MkAnnotT (MkItfAliasTerm itfAl, a))
-pattern SigTerm sig a = MkFix (MkAnnotT (MkSigTerm sig, a))
-pattern ClsTerm cls a = MkFix (MkAnnotT (MkClsTerm cls, a))
-pattern DefTerm def a = MkFix (MkAnnotT (MkDefTerm def, a))
+pattern InterfaceTerm itf a = MkFix (MkAnnotT (MkInterfaceTerm itf, a))
+pattern InterfaceAliasTerm itfAl a = MkFix (MkAnnotT (MkInterfaceAliasTerm itfAl, a))
+pattern SigTerm sig a    = MkFix (MkAnnotT (MkSigTerm sig,    a))
+pattern ClauseTerm cls a = MkFix (MkAnnotT (MkMHClauseTerm cls, a))
+pattern DefTerm def a    = MkFix (MkAnnotT (MkDefTerm def,    a))
 
 -- TODO: LC: Automatic generation of the following? Should be possible
 --           somehow
 
 instance HasIdentifier (TopTerm t) where
   getIdentifier (DataTerm dt _)        = getIdentifier dt
-  getIdentifier (ItfTerm itf _)        = getIdentifier itf
-  getIdentifier (ItfAliasTerm itfAl _) = getIdentifier itfAl
+  getIdentifier (InterfaceTerm itf _)        = getIdentifier itf
+  getIdentifier (InterfaceAliasTerm itfAl _) = getIdentifier itfAl
   getIdentifier (SigTerm sig _)        = getIdentifier sig
-  getIdentifier (ClsTerm cls _)        = getIdentifier cls
+  getIdentifier (ClauseTerm cls _)     = getIdentifier cls
   getIdentifier (DefTerm def _)        = getIdentifier def
 
+------------------------------------------------------------
+-- *** Uses
+
 data UseF :: Transformer -> * -> * where
-  MkRawIdentifier :: Identifier -> UseF (AnnotT Raw) r
-  MkRawComb :: r -> [TFix (AnnotT Raw) TermF] -> UseF (AnnotT Raw) r
-  MkOp :: NotRaw (t Identity ()) => TFix t OperatorF -> UseF t r
-  MkApp :: NotRaw (t Identity ()) => r -> [TFix t TermF] -> UseF t r
-  MkAdapted :: [TFix t AdaptorF] -> r -> UseF t r
+  MkRawIdentifier :: t ~ AnnotT Raw => Identifier          -> UseF t r
+  MkRawComb       :: t ~ AnnotT Raw => r -> [TFix t TermF] -> UseF t r
+  MkOp            :: IsNotRaw t     => TFix t OperatorF    -> UseF t r
+  MkApp           :: IsNotRaw t     => r -> [TFix t TermF] -> UseF t r
+  MkAdapted       :: [TFix t AdaptorF] -> r                -> UseF t r
 
 type UseF_ClassReq (c :: Type -> Constraint) r t =
   ( c (TFix t OperatorF)
   , c (TFix t TermF)
-  , c (TFix t ItfMapF)
+  , c (TFix t InterfaceMapF)
   , c (TFix t AdaptorF)
   , c r, c (TFix t UseF)
   )
@@ -320,7 +357,9 @@ pattern Op op a = MkFix (MkAnnotT (MkOp op, a))
 pattern App f xs a = MkFix (MkAnnotT (MkApp f xs, a))
 pattern Adapted rs tm a = MkFix (MkAnnotT (MkAdapted rs tm, a))
 
--- Term here = 'construction' in the paper
+------------------------------------------------------------
+-- *** Terms
+-- This corresponds to "construction" in the paper
 
 data TermF :: Transformer -> * -> * where
   MkSC :: TFix t SCompF -> TermF t r
@@ -331,7 +370,7 @@ data TermF :: Transformer -> * -> * where
   MkList :: [r] -> TermF (AnnotT Raw) r
   MkTermSeq :: r -> r -> TermF t r
   MkUse :: TFix t UseF -> TermF t r
-  MkDCon :: NotRaw (t Identity ()) => TFix t DataConF -> TermF t r
+  MkDCon :: IsNotRaw t => TFix t DataConF -> TermF t r
 
 type TermF_ClassReq (c :: Type -> Constraint) r t =
   ( c (TFix t SCompF)
@@ -354,20 +393,33 @@ pattern TermSeq tm1 tm2 a = MkFix (MkAnnotT (MkTermSeq tm1 tm2, a))
 pattern Use u a = MkFix (MkAnnotT (MkUse u, a))
 pattern DCon dc a = MkFix (MkAnnotT (MkDCon dc, a))
 
--- A clause for a multihandler definition
-data ClauseF :: ((* -> *) -> (* -> *)) -> * -> * where
-  MkCls :: [TFix t PatternF] -> TFix t TermF -> ClauseF t r
-deriving instance (Show (TFix t PatternF),
-                   Show (TFix t TermF),
-                   Show r, Show (TFix t ClauseF)) => Show (ClauseF t r)
-deriving instance (Eq (TFix t PatternF),
-                   Eq (TFix t TermF),
-                   Eq r, Eq (TFix t ClauseF)) => Eq (ClauseF t r)
-type Clause a = AnnotTFix a ClauseF
-pattern Cls ps t a = MkFix (MkAnnotT (MkCls ps t, a))
+------------------------------------------------------------
+-- *** Clauses for multi-handler definitions
 
-data SCompF :: ((* -> *) -> (* -> *)) -> * -> * where
+-- A clause for a multihandler definition
+data ClauseF :: Transformer -> * -> * where
+  MkClauseF :: [TFix t PatternF] -> TFix t TermF -> ClauseF t r
+
+type Clause_ClassReq (c :: Type -> Constraint) r t =
+  ( c (TFix t PatternF)
+  , c (TFix t TermF)
+  , c r, c (TFix t ClauseF)
+  )
+
+deriving instance Clause_ClassReq Show r t => Show (ClauseF t r)
+deriving instance Clause_ClassReq Eq   r t => Eq (ClauseF t r)
+
+type Clause a = AnnotTFix a ClauseF
+
+pattern MkClause :: [Pattern syn] -> Term syn -> syn -> Clause syn
+pattern MkClause ps t a = MkFix (MkAnnotT (MkClauseF ps t, a))
+
+------------------------------------------------------------
+-- *** Suspended computations
+
+data SCompF :: Transformer -> * -> * where
   MkSComp :: [TFix t ClauseF] -> SCompF t r
+
 deriving instance (Show (TFix t ClauseF),
                    Show r, Show (TFix t SCompF)) => Show (SCompF t r)
 deriving instance (Eq (TFix t ClauseF),
@@ -375,11 +427,15 @@ deriving instance (Eq (TFix t ClauseF),
 type SComp a = AnnotTFix a SCompF
 pattern SComp cls a = MkFix (MkAnnotT (MkSComp cls, a))
 
-data Kind = VT   -- value type
-          | ET   -- effect type
+------------------------------------------------------------
+-- *** Data types
+
+data Kind
+  = VT -- ^ value type
+  | ET -- ^ effect type
   deriving (Show, Eq)
 
-data DataTF :: ((* -> *) -> (* -> *)) -> * -> * where
+data DataTF :: Transformer -> * -> * where
   MkDT :: Identifier -> [(Identifier, Kind)] -> [TFix t CtrF] -> DataTF t r
 deriving instance (Show (TFix t CtrF),
                    Show r, Show (TFix t DataTF)) => Show (DataTF t r)
@@ -389,47 +445,58 @@ type DataT a = AnnotTFix a DataTF
 pattern DT x ps ctrs a = MkFix (MkAnnotT (MkDT x ps ctrs, a))
 instance HasIdentifier (DataT t) where getIdentifier (DT x _ _ _) = x
 
-data ItfF :: ((* -> *) -> (* -> *)) -> * -> * where
-  MkItf :: Identifier -> [(Identifier, Kind)] -> [TFix t CmdF] -> ItfF t r
+------------------------------------------------------------
+-- *** Interfaces
+
+data InterfaceF :: Transformer -> * -> * where
+  MkInterfaceF :: Identifier -> [(Identifier, Kind)] -> [TFix t CmdF] -> InterfaceF t r
+
 deriving instance (Show (TFix t CmdF),
-                   Show r, Show (TFix t ItfF)) => Show (ItfF t r)
+                   Show r, Show (TFix t InterfaceF)) => Show (InterfaceF t r)
 deriving instance (Eq (TFix t CmdF),
-                   Eq r, Eq (TFix t ItfF)) => Eq (ItfF t r)
-type Itf a = AnnotTFix a ItfF
-pattern Itf x ps cmds a = MkFix (MkAnnotT (MkItf x ps cmds, a))
-instance HasIdentifier (Itf t) where getIdentifier (Itf x _ _ _) = x
+                   Eq r, Eq (TFix t InterfaceF)) => Eq (InterfaceF t r)
+type Interface a = AnnotTFix a InterfaceF
 
-data ItfAliasF :: ((* -> *) -> (* -> *)) -> * -> * where
-  MkItfAlias :: Identifier -> [(Identifier, Kind)] -> TFix t ItfMapF -> ItfAliasF t r
-deriving instance (Show (TFix t ItfMapF),
-                   Show r, Show (TFix t ItfAliasF)) => Show (ItfAliasF t r)
-deriving instance (Eq (TFix t ItfMapF),
-                   Eq r, Eq (TFix t ItfAliasF)) => Eq (ItfAliasF t r)
-type ItfAlias a = AnnotTFix a ItfAliasF
-pattern ItfAlias x ps itfMap a = MkFix (MkAnnotT (MkItfAlias x ps itfMap, a))
-instance HasIdentifier (ItfAlias t) where getIdentifier (ItfAlias x _ _ _) = x
+pattern MkInterface x ps cmds a = MkFix (MkAnnotT (MkInterfaceF x ps cmds, a))
+instance HasIdentifier (Interface t) where getIdentifier (MkInterface x _ _ _) = x
 
-data CtrF :: ((* -> *) -> (* -> *)) -> * -> * where
-  MkCtr :: Identifier -> [TFix t VTypeF] -> CtrF t r
-deriving instance (Show (TFix t VTypeF),
+data InterfaceAliasF :: Transformer -> * -> * where
+  MkInterfaceAliasF
+    :: Identifier -> [(Identifier, Kind)] -> TFix t InterfaceMapF -> InterfaceAliasF t r
+
+deriving instance (Show (TFix t InterfaceMapF),
+                   Show r, Show (TFix t InterfaceAliasF)) => Show (InterfaceAliasF t r)
+deriving instance (Eq (TFix t InterfaceMapF),
+                   Eq r, Eq (TFix t InterfaceAliasF)) => Eq (InterfaceAliasF t r)
+
+type InterfaceAlias a = AnnotTFix a InterfaceAliasF
+
+pattern MkInterfaceAlias x ps itfMap a = MkFix (MkAnnotT (MkInterfaceAliasF x ps itfMap, a))
+
+instance HasIdentifier (InterfaceAlias t) where
+  getIdentifier (MkInterfaceAlias x _ _ _) = x
+
+data CtrF :: Transformer -> * -> * where
+  MkCtr :: Identifier -> [TFix t ValueTypeF] -> CtrF t r
+deriving instance (Show (TFix t ValueTypeF),
                    Show r, Show (TFix t CtrF)) => Show (CtrF t r)
-deriving instance (Eq (TFix t VTypeF),
+deriving instance (Eq (TFix t ValueTypeF),
                    Eq r, Eq (TFix t CtrF)) => Eq (CtrF t r)
 type Ctr a = AnnotTFix a CtrF
 pattern Ctr x tys a = MkFix (MkAnnotT (MkCtr x tys, a))
 
-data CmdF :: ((* -> *) -> (* -> *)) -> * -> * where
-  MkCmd :: Identifier -> [(Identifier, Kind)] -> [TFix t VTypeF] -> TFix t VTypeF ->
+data CmdF :: Transformer -> * -> * where
+  MkCmd :: Identifier -> [(Identifier, Kind)] -> [TFix t ValueTypeF] -> TFix t ValueTypeF ->
            CmdF t r
-deriving instance (Show (TFix t VTypeF),
+deriving instance (Show (TFix t ValueTypeF),
                    Show r, Show (TFix t CmdF)) => Show (CmdF t r)
-deriving instance (Eq (TFix t VTypeF),
+deriving instance (Eq (TFix t ValueTypeF),
                    Eq r, Eq (TFix t CmdF)) => Eq (CmdF t r)
 --                    id  ty vars      arg tys   result ty
 type Cmd a = AnnotTFix a CmdF
 pattern Cmd x ps tys ty a = MkFix (MkAnnotT (MkCmd x ps tys ty, a))
 
-data PatternF :: ((* -> *) -> (* -> *)) -> * -> * where
+data PatternF :: Transformer -> * -> * where
   MkVPat :: TFix t ValuePatF -> PatternF t r
   MkCmdPat :: Identifier -> Int -> [TFix t ValuePatF] -> Identifier -> PatternF t r
   MkThkPat :: Identifier -> PatternF t r
@@ -445,7 +512,7 @@ pattern ThkPat x a = MkFix (MkAnnotT (MkThkPat x, a))
 -- TODO: should we compile away string patterns into list of char patterns?
 -- Takes      tag "t" (e.g. Refined),
 --       recursor "r"
-data ValuePatF :: ((* -> *) -> (* -> *)) -> * -> * where
+data ValuePatF :: Transformer -> * -> * where
   MkVarPat :: Identifier -> ValuePatF t r
   MkDataPat :: Identifier -> [r] -> ValuePatF t r
   MkIntPat :: Int -> ValuePatF t r
@@ -465,55 +532,69 @@ pattern ConsPat p1 p2 a = MkFix (MkAnnotT (MkConsPat p1 p2, a))
 pattern ListPat ps a = MkFix (MkAnnotT (MkListPat ps, a))
 
 -- Type hierarchy
-data CTypeF :: ((* -> *) -> (* -> *)) -> * -> * where
-  MkCType :: [TFix t PortF] -> TFix t PegF -> CTypeF t r                    -- computation types
+data CompTypeF :: Transformer -> * -> * where
+  MkCompType :: [TFix t PortF] -> TFix t PegF -> CompTypeF t r -- computation types
+
 deriving instance (Show (TFix t PortF),
                    Show (TFix t PegF),
-                   Show r, Show (TFix t CTypeF)) => Show (CTypeF t r)
+                   Show r, Show (TFix t CompTypeF)) => Show (CompTypeF t r)
 deriving instance (Eq (TFix t PortF),
                    Eq (TFix t PegF),
-                   Eq r, Eq (TFix t CTypeF)) => Eq (CTypeF t r)
-type CType a = AnnotTFix a CTypeF
-pattern CType ports peg a = MkFix (MkAnnotT (MkCType ports peg, a))
+                   Eq r, Eq (TFix t CompTypeF)) => Eq (CompTypeF t r)
 
-data PortF :: ((* -> *) -> (* -> *)) -> * -> * where
-  MkPort :: [TFix t AdjustmentF] -> TFix t VTypeF -> PortF t r              -- ports
+type CompType a = AnnotTFix a CompTypeF
+
+pattern CompType ports peg a = MkFix (MkAnnotT (MkCompType ports peg, a))
+
+data PortF :: Transformer -> * -> * where
+  MkPort :: [TFix t AdjustmentF] -> TFix t ValueTypeF -> PortF t r              -- ports
 deriving instance (Show (TFix t AdjustmentF),
-                   Show (TFix t VTypeF),
+                   Show (TFix t ValueTypeF),
                    Show r, Show (TFix t PortF)) => Show (PortF t r)
 deriving instance (Eq (TFix t AdjustmentF),
-                   Eq (TFix t VTypeF),
+                   Eq (TFix t ValueTypeF),
                    Eq r, Eq (TFix t PortF)) => Eq (PortF t r)
 type Port a = AnnotTFix a PortF
 pattern Port adjs ty a = MkFix (MkAnnotT (MkPort adjs ty, a))
 
-data PegF :: ((* -> *) -> (* -> *)) -> * -> * where
-  MkPeg :: TFix t AbF -> TFix t VTypeF -> PegF t r                          -- pegs
+data PegF :: Transformer -> * -> * where
+  MkPeg :: TFix t AbF -> TFix t ValueTypeF -> PegF t r                          -- pegs
 deriving instance (Show (TFix t AbF),
-                   Show (TFix t VTypeF),
+                   Show (TFix t ValueTypeF),
                    Show r, Show (TFix t PegF)) => Show (PegF t r)
 deriving instance (Eq (TFix t AbF),
-                   Eq (TFix t VTypeF),
+                   Eq (TFix t ValueTypeF),
                    Eq r, Eq (TFix t PegF)) => Eq (PegF t r)
 type Peg a = AnnotTFix a PegF
 pattern Peg ab ty a = MkFix (MkAnnotT (MkPeg ab ty, a))
 
-data VTypeF :: ((* -> *) -> (* -> *)) -> * -> * where                       -- value types
-  MkDTTy :: Identifier -> [TFix t TyArgF] -> VTypeF t r                             --   data types (instant. type constr.)  may be refined to MkTVar
-  MkSCTy :: TFix t CTypeF -> VTypeF t  r                                    --   suspended computation types
-  MkTVar :: NotDesugared (t Identity ()) => Identifier -> VTypeF t  r               --                                       may be refined to MkDTTy
-  MkRTVar :: Identifier -> VTypeF (AnnotT Desugared)  r                             --   rigid type variable (bound)
-  MkFTVar :: Identifier -> VTypeF (AnnotT Desugared)  r                             --   flexible type variable (free)
-  MkStringTy :: NotDesugared (t Identity ()) => VTypeF t r                  --   string type
-  MkIntTy :: VTypeF t r                                                     --   int type
-  MkCharTy :: VTypeF t r                                                    --   char type
-deriving instance (Show (TFix t TyArgF),
-                   Show (TFix t CTypeF),
-                   Show r, Show (TFix t VTypeF)) => Show (VTypeF t r)
-deriving instance (Eq (TFix t TyArgF),
-                   Eq (TFix t CTypeF),
-                   Eq r, Eq (TFix t VTypeF)) => Eq (VTypeF t r)
-type VType a = AnnotTFix a VTypeF
+-- | Value types
+data ValueTypeF :: Transformer -> * -> * where
+  -- | Data types (instant. type constr.) may be refined to MkTVar
+  MkDTTy :: Identifier -> [TFix t TypeArgF] -> ValueTypeF t r
+  -- | Suspended computation types
+  MkSCTy :: TFix t CompTypeF -> ValueTypeF t  r
+  -- | May be refined to MkDTTy
+  MkTVar :: NotDesugared (t Identity ()) => Identifier -> ValueTypeF t  r
+  -- | Rigid type variable (bound)
+  MkRTVar :: Identifier -> ValueTypeF (AnnotT Desugared)  r
+  -- | Flexible type variable (free)
+  MkFTVar :: Identifier -> ValueTypeF (AnnotT Desugared)  r
+  -- | String type
+  MkStringTy :: NotDesugared (t Identity ()) => ValueTypeF t r
+  -- | Int type
+  MkIntTy :: ValueTypeF t r
+  -- | Char type
+  MkCharTy :: ValueTypeF t r
+
+deriving instance (Show (TFix t TypeArgF),
+                   Show (TFix t CompTypeF),
+                   Show r, Show (TFix t ValueTypeF)) => Show (ValueTypeF t r)
+deriving instance (Eq (TFix t TypeArgF),
+                   Eq (TFix t CompTypeF),
+                   Eq r, Eq (TFix t ValueTypeF)) => Eq (ValueTypeF t r)
+
+type ValueType a = AnnotTFix a ValueTypeF
 pattern DTTy x tyArgs a = MkFix (MkAnnotT (MkDTTy x tyArgs, a))
 pattern SCTy cty a = MkFix (MkAnnotT (MkSCTy cty, a))
 pattern TVar x a = MkFix (MkAnnotT (MkTVar x, a))
@@ -524,43 +605,57 @@ pattern IntTy a = MkFix (MkAnnotT (MkIntTy, a))
 pattern CharTy a = MkFix (MkAnnotT (MkCharTy, a))
 
 -- Interface-id -> list of bwd-list of ty arg's (each entry an instantiation)
-data ItfMapF :: ((* -> *) -> (* -> *)) -> * -> * where
-  MkItfMap :: M.Map Identifier (Bwd [TFix t TyArgF]) -> ItfMapF t r
-deriving instance (Show (TFix t TyArgF),
-                   Show r, Show (TFix t ItfMapF)) => Show (ItfMapF t r)
-deriving instance (Eq (TFix t TyArgF),
-                   Eq r, Eq (TFix t ItfMapF)) => Eq (ItfMapF t r)
-type ItfMap a = AnnotTFix a ItfMapF
-pattern ItfMap m a = MkFix (MkAnnotT (MkItfMap m, a))
+data InterfaceMapF :: Transformer -> * -> * where
+  MkInterfaceMap :: M.Map Identifier (Bwd [TFix t TypeArgF]) -> InterfaceMapF t r
 
--- Adjustments
-data AdjustmentF :: ((* -> *) -> (* -> *)) -> * -> * where
-  MkConsAdj :: Identifier -> [TFix t TyArgF] -> AdjustmentF t r                     -- interface-id, list of ty arg's
+deriving instance (Show (TFix t TypeArgF),
+                   Show r, Show (TFix t InterfaceMapF)) => Show (InterfaceMapF t r)
+deriving instance (Eq (TFix t TypeArgF),
+                   Eq r, Eq (TFix t InterfaceMapF)) => Eq (InterfaceMapF t r)
+
+type InterfaceMap a = AnnotTFix a InterfaceMapF
+pattern InterfaceMap m a = MkFix (MkAnnotT (MkInterfaceMap m, a))
+
+------------------------------------------------------------
+-- *** Adjustments
+
+data AdjustmentF :: Transformer -> * -> * where
+  MkConsAdj
+    :: Identifier        -- ^ interface-id
+    -> [TFix t TypeArgF] -- ^ list of type arguments
+    -> AdjustmentF t r
   MkAdaptorAdj :: TFix t AdaptorF -> AdjustmentF t r
-deriving instance (Show (TFix t TyArgF),
-                   Show (TFix t AdaptorF),
-                   Show r, Show (TFix t AdjustmentF)) => Show (AdjustmentF t r)
-deriving instance (Eq (TFix t TyArgF),
-                   Eq (TFix t AdaptorF),
-                   Eq r, Eq (TFix t AdjustmentF)) => Eq (AdjustmentF t r)
+
+type Adjustment_ClassReq (c :: Type -> Constraint) r t =
+  ( c (TFix t TypeArgF)
+  , c (TFix t AdaptorF)
+  , c r, c (TFix t AdjustmentF)
+  )
+
+deriving instance Adjustment_ClassReq Show r t => Show (AdjustmentF t r)
+deriving instance Adjustment_ClassReq Eq   r t => Eq (AdjustmentF t r)
+
 type Adjustment a = AnnotTFix a AdjustmentF
+
 pattern ConsAdj x ts a = MkFix (MkAnnotT (MkConsAdj x ts, a))
 pattern AdaptorAdj adp a = MkFix (MkAnnotT (MkAdaptorAdj adp, a))
 
+------------------------------------------------------------
+
 -- Abilities
-data AbF :: ((* -> *) -> (* -> *)) -> * -> * where
-  MkAb :: TFix t AbModF -> TFix t ItfMapF -> AbF t r                        -- interface-id  ->  list of ty arg's
+data AbF :: Transformer -> * -> * where
+  MkAb :: TFix t AbModF -> TFix t InterfaceMapF -> AbF t r                        -- interface-id  ->  list of ty arg's
 deriving instance (Show (TFix t AbModF),
-                   Show (TFix t ItfMapF),
+                   Show (TFix t InterfaceMapF),
                    Show r, Show (TFix t AbF)) => Show (AbF t r)
 deriving instance (Eq (TFix t AbModF),
-                   Eq (TFix t ItfMapF),
+                   Eq (TFix t InterfaceMapF),
                    Eq r, Eq (TFix t AbF)) => Eq (AbF t r)
 type Ab a = AnnotTFix a AbF
 pattern Ab abMod itfMap a = MkFix (MkAnnotT (MkAb abMod itfMap, a))
 
 -- Ability modes
-data AbModF :: ((* -> *) -> (* -> *)) -> * -> * where
+data AbModF :: Transformer -> * -> * where
   MkEmpAb :: AbModF t r                                                     -- empty            (closed ability)
   MkAbVar :: NotDesugared (t Identity ()) => Identifier -> AbModF t r               -- non-desugared effect variable
   MkAbRVar :: Identifier -> AbModF (AnnotT Desugared)  r                            -- rigid eff var    (open ability)
@@ -573,22 +668,22 @@ pattern AbVar x a = MkFix (MkAnnotT (MkAbVar x, a))
 pattern AbRVar x a = MkFix (MkAnnotT (MkAbRVar x, a))
 pattern AbFVar x a = MkFix (MkAnnotT (MkAbFVar x, a))
 
-data TyArgF :: ((* -> *) -> (* -> *)) -> * -> * where
-  MkVArg :: TFix t VTypeF -> TyArgF t r
-  MkEArg :: TFix t AbF   -> TyArgF t r
-deriving instance (Show (TFix t VTypeF),
+data TypeArgF :: Transformer -> * -> * where
+  MkVArg :: TFix t ValueTypeF -> TypeArgF t r
+  MkEArg :: TFix t AbF   -> TypeArgF t r
+deriving instance (Show (TFix t ValueTypeF),
                    Show (TFix t AbF),
-                   Show r, Show (TFix t TyArgF)) => Show (TyArgF t r)
-deriving instance (Eq (TFix t VTypeF),
+                   Show r, Show (TFix t TypeArgF)) => Show (TypeArgF t r)
+deriving instance (Eq (TFix t ValueTypeF),
                    Eq (TFix t AbF),
-                   Eq r, Eq (TFix t TyArgF)) => Eq (TyArgF t r)
-type TyArg a = AnnotTFix a TyArgF
+                   Eq r, Eq (TFix t TypeArgF)) => Eq (TypeArgF t r)
+type TypeArg a = AnnotTFix a TypeArgF
 pattern VArg ty a = MkFix (MkAnnotT (MkVArg ty, a))
 pattern EArg ab a = MkFix (MkAnnotT (MkEArg ab, a))
 
 -- TODO: LC: Make distinction between MkAdp and MkCompilableAdp on
 -- type-level (GADT)
-data AdaptorF :: ((* -> *) -> (* -> *)) -> * -> * where
+data AdaptorF :: Transformer -> * -> * where
   MkRawAdp :: Identifier -> Identifier -> [Identifier] -> [Identifier] -> AdaptorF (AnnotT Raw) r           -- e.g. I(s y x -> y x) (s is first arg, [y x] is second arg, [y x] is third arg)
   MkAdp :: Identifier -> Maybe Int -> [Int] -> AdaptorF t r                         -- adapt an interface `x` in an ability from right to left according to `ns` and (possibly - according to Maybe) attach all instances from `m` on
   MkCompilableAdp :: Identifier -> Int -> [Int] -> AdaptorF t r                     -- adapt an interface `x` in an ability that has exactly `n` instances of it from right to left according to `ns`
@@ -601,14 +696,14 @@ pattern RawAdp x liat left right a = MkFix (MkAnnotT (MkRawAdp x liat left right
 pattern Adp x mm ns a = MkFix (MkAnnotT (MkAdp x mm ns, a))
 pattern CompilableAdp x m ns a = MkFix (MkAnnotT (MkCompilableAdp x m ns, a))
 
-desugaredStrTy :: Desugared -> VType Desugared
+desugaredStrTy :: Desugared -> ValueType Desugared
 desugaredStrTy a = DTTy "List" [VArg (CharTy a) a] a
 
-getCmds :: Itf t -> [Cmd t]
-getCmds (Itf _ _ xs _) = xs
+getCmds :: Interface t -> [Cmd t]
+getCmds (MkInterface _ _ xs _) = xs
 
-collectINames :: [Itf t] -> [Identifier]
-collectINames = map (\case (Itf itf _ _ _) -> itf)
+collectINames :: [Interface t] -> [Identifier]
+collectINames = map (\case (MkInterface itf _ _ _) -> itf)
 
 getCtrs :: DataT t -> [Ctr t]
 getCtrs (DT _ _ xs _) = xs
@@ -625,10 +720,10 @@ abToList MkOpenAb = []
 abToList (MkAbPlus ab id _) = id : abToList ab
 
 -- Substitute the ability for the distinguished effect variable in the type.
-substOpenAb :: Ab a -> VType a -> VType a
+substOpenAb :: Ab a -> ValueType a -> ValueType a
 substOpenAb ab (MkDTTy id abs xs) =
   MkDTTy id (map (substOpenAbAb ab) abs) (map (substOpenAb ab) xs)
-substOpenAb ab (MkSCTy cty) = MkSCTy $ substOpenAbCType ab cty
+substOpenAb ab (MkSCTy cty) = MkSCTy $ substOpenAbCompType ab cty
 substOpenAb _ ty = ty
 
 substOpenAbAb :: Ab a -> Ab a -> Ab a
@@ -643,9 +738,9 @@ substOpenAbAdj ab MkIdAdj = MkIdAdj
 substOpenAbAdj ab (MkAdjPlus adj itf xs) =
   MkAdjPlus (substOpenAbAdj ab adj) itf (map (substOpenAb ab) xs)
 
-substOpenAbCType :: Ab a -> CType a -> CType a
-substOpenAbCType ab (MkCType ps q) =
-  MkCType (map (substOpenAbPort ab) ps) (substOpenAbPeg ab q)
+substOpenAbCompType :: Ab a -> CompType a -> CompType a
+substOpenAbCompType ab (MkCompType ps q) =
+  MkCompType (map (substOpenAbPort ab) ps) (substOpenAbPeg ab q)
 
 substOpenAbPeg :: Ab a -> Peg a -> Peg a
 substOpenAbPeg ab (MkPeg ab' ty) =
@@ -663,14 +758,14 @@ getOpName (CmdIdentifier x _) = x
 
 -- transform type variable (+ its kind) to a raw tye variable argument
 -- (use during refinement of itf maps)
-tyVar2rawTyVarArg :: (Identifier, Kind) -> TyArg Raw
+tyVar2rawTyVarArg :: (Identifier, Kind) -> TypeArg Raw
 tyVar2rawTyVarArg (id, VT) = VArg (TVar id (Raw Generated)) (Raw Generated)
 tyVar2rawTyVarArg (id, ET) = EArg (liftAbMod (AbVar id (Raw Generated)))
                                   (Raw Generated)
 
 -- transform type variable (+ its kind) to a rigid tye variable argument
 -- (prepare for later unification)
-tyVar2rigTyVarArg :: (Identifier, Kind) -> TyArg Desugared
+tyVar2rigTyVarArg :: (Identifier, Kind) -> TypeArg Desugared
 tyVar2rigTyVarArg (id, VT) = VArg (RTVar id (Desugared Generated))
                                   (Desugared Generated)
 tyVar2rigTyVarArg (id, ET) = EArg (liftAbMod (AbRVar id
@@ -678,7 +773,7 @@ tyVar2rigTyVarArg (id, ET) = EArg (liftAbMod (AbRVar id
                                   (Desugared Generated)
 
 liftAbMod :: AbMod t -> Ab t
-liftAbMod abMod = Ab abMod (ItfMap M.empty (getAnn abMod)) (getAnn abMod)
+liftAbMod abMod = Ab abMod (InterfaceMap M.empty (getAnn abMod)) (getAnn abMod)
 
 -- Only to be applied to identifiers representing rigid or flexible
 -- metavariables (type or effect).
@@ -690,61 +785,61 @@ trimVar = takeWhile (/= '$')
 -- For each interface, the instances are concatenated
 -- e.g. [State Bool, State Int] + [State String, State Char] =
 -- [State Bool, State Int, State String, State Char]
-plusItfMap :: ItfMap t -> ItfMap t -> ItfMap t
-plusItfMap (ItfMap m a) (ItfMap m' _) = foldl plusItfMap' (ItfMap m a) (M.toList m')
-  where plusItfMap' :: ItfMap t -> (Identifier, Bwd [TyArg t]) -> ItfMap t
-        plusItfMap' (ItfMap m'' a'') (x, instants) =
-          if M.member x m'' then ItfMap (M.adjust (\instants' -> instants' <>< bwd2fwd instants) x m'') a''
-                                                                       else ItfMap (M.insert x instants m'') a''
+plusInterfaceMap :: InterfaceMap t -> InterfaceMap t -> InterfaceMap t
+plusInterfaceMap (InterfaceMap m a) (InterfaceMap m' _) = foldl plusInterfaceMap' (InterfaceMap m a) (M.toList m')
+  where plusInterfaceMap' :: InterfaceMap t -> (Identifier, Bwd [TypeArg t]) -> InterfaceMap t
+        plusInterfaceMap' (InterfaceMap m'' a'') (x, instants) =
+          if M.member x m'' then InterfaceMap (M.adjust (\instants' -> instants' <>< bwd2fwd instants) x m'') a''
+                                                                       else InterfaceMap (M.insert x instants m'') a''
 
 -- eg. [State Bool,State Int] + State Char = [State Bool,State Int,State Char]
-addInstanceToItfMap :: ItfMap Raw -> (Identifier, [TyArg Raw]) -> ItfMap Raw
-addInstanceToItfMap (ItfMap m a) (x, args) =
-  if M.member x m then ItfMap (M.adjust (:< args) x m) a
-  else ItfMap (M.insert x (BEmp :< args) m) a
+addInstanceToInterfaceMap :: InterfaceMap Raw -> (Identifier, [TypeArg Raw]) -> InterfaceMap Raw
+addInstanceToInterfaceMap (InterfaceMap m a) (x, args) =
+  if M.member x m then InterfaceMap (M.adjust (:< args) x m) a
+  else InterfaceMap (M.insert x (BEmp :< args) m) a
 
 -- Given m1 and m2, return
 -- 1) All interfaces that occur in m1 *and* m2
 -- 2) Of those interface, take only the longest suffix of common length,
 --    with instances from m1
-intersectItfMap :: ItfMap t -> ItfMap t -> ItfMap t
-intersectItfMap (ItfMap m1 a) (ItfMap m2 _) = ItfMap m'' a
+intersectInterfaceMap :: InterfaceMap t -> InterfaceMap t -> InterfaceMap t
+intersectInterfaceMap (InterfaceMap m1 a) (InterfaceMap m2 _) = InterfaceMap m'' a
   where m'  = M.intersectionWith (\args args' -> takeBwd (min (length args) (length args')) args) m1 m2
         m'' = M.filter (not . null) m'
 
 -- Given m1 and m2, cut off entry suffixes of m1 of length determined by m2's
 -- entries' lengths
-cutItfMapSuffix :: ItfMap t -> ItfMap t -> ItfMap t
-cutItfMapSuffix (ItfMap m1 a) (ItfMap m2 _) = ItfMap m'' a
+cutInterfaceMapSuffix :: InterfaceMap t -> InterfaceMap t -> InterfaceMap t
+cutInterfaceMapSuffix (InterfaceMap m1 a) (InterfaceMap m2 _) = InterfaceMap m'' a
   where m' = M.differenceWith (\args args' -> Just $ dropBwd (length args') args) m1 m2
         m'' = M.filter (not . null) m'
 
 -- NOTE (Varun): This was dead code.
--- stripInactiveOffItfMap :: ItfMap t -> ItfMap t
--- stripInactiveOffItfMap (ItfMap m a) = ItfMap m' a
+-- stripInactiveOffInterfaceMap :: InterfaceMap t -> InterfaceMap t
+-- stripInactiveOffInterfaceMap (InterfaceMap m a) = InterfaceMap m' a
 --   where m' = M.map (\case BEmp -> error "invariant broken"
 --                           (_ :< x) -> BEmp :< x) m
 
-isItfMapSuffixOf :: Eq t => ItfMap t -> ItfMap t -> Bool
-isItfMapSuffixOf m1 m2 = (m2 `cutItfMapSuffix` m1) `plusItfMap` m1 == m2
+isInterfaceMapSuffixOf :: Eq t => InterfaceMap t -> InterfaceMap t -> Bool
+isInterfaceMapSuffixOf m1 m2 = (m2 `cutInterfaceMapSuffix` m1) `plusInterfaceMap` m1 == m2
 
-emptyItfMap :: t -> ItfMap t
-emptyItfMap = ItfMap M.empty
+emptyInterfaceMap :: t -> InterfaceMap t
+emptyInterfaceMap = InterfaceMap M.empty
 
-isItfMapEmpty :: ItfMap t -> Bool
-isItfMapEmpty (ItfMap m _) = M.null m
+isInterfaceMapEmpty :: InterfaceMap t -> Bool
+isInterfaceMapEmpty (InterfaceMap m _) = M.null m
 
 -- Normal form of lists of adjustments
--- M.Map Identifier (Bwd [TyArg Desugared]:  I -> Enrichments for I (instances which are
+-- M.Map Identifier (Bwd [TypeArg Desugared]:  I -> Enrichments for I (instances which are
 --                                   handled here)
 -- M.Map Identifier (Renaming, Int):         I -> Total renaming for I, number of enrichments for I
 adjsNormalForm :: [Adjustment Desugared] ->
-                  (M.Map Identifier (Bwd [TyArg Desugared]), M.Map Identifier Renaming)
+                  (M.Map Identifier (Bwd [TypeArg Desugared]), M.Map Identifier Renaming)
 adjsNormalForm = foldl (flip addAdjNormalForm) (M.empty, M.empty)
 
 addAdjNormalForm :: Adjustment Desugared ->
-  (M.Map Identifier (Bwd [TyArg Desugared]), M.Map Identifier Renaming) ->
-  (M.Map Identifier (Bwd [TyArg Desugared]), M.Map Identifier Renaming)
+  (M.Map Identifier (Bwd [TypeArg Desugared]), M.Map Identifier Renaming) ->
+  (M.Map Identifier (Bwd [TypeArg Desugared]), M.Map Identifier Renaming)
 addAdjNormalForm (ConsAdj x ts a) (insts, adps) =
   ( adjustWithDefault (:< ts) x BEmp insts
   , adjustWithDefault (\(rs, r) -> renToNormalForm (0 : map (+ 1) rs, r + 1)) x renIdentifier adps

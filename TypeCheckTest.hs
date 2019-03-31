@@ -3,7 +3,7 @@ module Main where
 import Parser
 import TypeCheck
 import RefineSyntax
-import DesugarSyntax
+import Syntax.Desugar
 
 tcProg progName =
   do p <- runTokenProgParse <$> readFile (progName ++ ".fk")

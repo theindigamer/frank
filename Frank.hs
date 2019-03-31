@@ -5,8 +5,8 @@ import Parser
 import Compile
 import TypeCheck
 import Syntax
-import RefineSyntax
-import DesugarSyntax
+import Syntax.Refine
+import Syntax.Desugar
 import Debug
 
 import qualified Shonky.Semantics as Shonky
@@ -30,35 +30,36 @@ type PMap = M.Map FilePath (Program Raw)
 
 -- Function checks whether or not a main function exists in the program
 existsMain :: Program t -> Bool
-existsMain (MkProgram xs) = "main" `elem` [ident | DefTerm (Def ident _ _ _) _ <- xs]
+existsMain (MkProgram xs) = "main" `elem` [ident | DefTerm (MkDef ident _ _ _) _ <- xs]
 
 splice :: Program Raw -> Term Raw -> Program Raw
 splice (MkProgram xs) tm = MkProgram $ xs ++ ys
-  where ys = [sig, cls]
-        sig = SigTerm (Sig id (CType [] peg b) b) b
-        peg = Peg ab ty b
-        ty = TVar "%X" b
-        ab = Ab (AbVar "£" b) (ItfMap M.empty (Raw Generated)) b
-        cls = ClsTerm (MHCls id (Cls [] tm b) b) b
-        id = "%eval"
-        b = Raw Generated
+  where
+    ys = [sig, cls]
+    sig = SigTerm (MkSig ident (CompType [] peg b) b) b
+    peg = Peg ab ty b
+    ty = TVar "%X" b
+    ab = Ab (AbVar "£" b) (InterfaceMap M.empty (Raw Generated)) b
+    cls = ClauseTerm (MkMHClause ident (MkClause [] tm b) b) b
+    ident = "%eval"
+    b = Raw Generated
 
 --TODO: LC: Fix locations?
 exorcise :: Program Desugared -> (Program Desugared, TopTerm Desugared)
 exorcise (MkProgram xs) = (prog, DefTerm (head evalDef) a)
   where prog = MkProgram (map (swap DataTerm a) dts ++
-                       map (swap ItfTerm a) itfs ++
+                       map (swap InterfaceTerm a) itfs ++
                        map (swap DefTerm a) hdrs)
         dts = [d | DataTerm d _ <- xs]
-        itfs = [i | ItfTerm i _ <- xs]
+        itfs = [i | InterfaceTerm i _ <- xs]
         defs = [d | DefTerm d _ <- xs]
         (evalDef,hdrs) = partition isEvalTerm defs
-        isEvalTerm (Def id _ _ _) = id == "%eval"
+        isEvalTerm (MkDef id _ _ _) = id == "%eval"
         a = Desugared Generated
 
 extractEvalUse :: TopTerm Desugared -> Use Desugared
-extractEvalUse (DefTerm (Def _ _ [cls] _) _) = getBody cls
-  where getBody (Cls [] (Use u _) _) = u
+extractEvalUse (DefTerm (MkDef _ _ [cls] _) _) = getBody cls
+  where getBody (MkClause [] (Use u _) _) = u
         getBody _ = error "extractEvalUse: eval body invariant broken"
 
 glue :: Program Desugared -> TopTerm Desugared -> Program Desugared
@@ -126,7 +127,7 @@ checkProgram p _ =
     Left err -> die err
     Right p' -> return p'
 
-checkUse :: Program Desugared -> Use Desugared -> IO (Use Desugared, VType Desugared)
+checkUse :: Program Desugared -> Use Desugared -> IO (Use Desugared, ValueType Desugared)
 checkUse p use =
   case inferEvalUse p use of
     Left err -> die err

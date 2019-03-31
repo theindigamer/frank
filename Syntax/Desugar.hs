@@ -1,5 +1,5 @@
 -- Transform all type variables to unique rigid type variables.
-module DesugarSyntax where
+module Syntax.Desugar where
 
 import Control.Monad.State
 import Control.Monad.Identity
@@ -13,7 +13,7 @@ import Shonky.Renaming
 
 type Desugar = StateT DState (FreshMT Identity)
 
-type IdTVMap = M.Map Identifier (VType Desugared)
+type IdTVMap = M.Map Identifier (ValueType Desugared)
 
 type IdAbModMap = M.Map Identifier (AbMod Desugared)
 
@@ -26,7 +26,7 @@ getDState = get
 putDState :: DState -> Desugar ()
 putDState = put
 
-freshRTVar :: Identifier -> Desugared -> Desugar (VType Desugared)
+freshRTVar :: Identifier -> Desugared -> Desugar (ValueType Desugared)
 freshRTVar x a = do n <- fresh
                     return $ RTVar (x ++ "$r" ++ show n) a
 
@@ -34,7 +34,7 @@ freshRigid :: Identifier -> Desugar Identifier
 freshRigid x = do n <- fresh
                   return $ x ++ "$r" ++ show n
 
-pullIdentifier :: VType Desugared -> Identifier
+pullIdentifier :: ValueType Desugared -> Identifier
 pullIdentifier (RTVar ident _) = ident
 pullIdentifier _ = error "pullIdentifier called on something other than a rigid tvar"
 
@@ -65,7 +65,7 @@ desugar (MkProgram xs) = MkProgram $ evalFresh m
 -- no explicit refinements
 desugarTopTerm :: TopTerm Refined -> Desugar (TopTerm Desugared)
 desugarTopTerm (DataTerm dt a) = DataTerm <$> desugarDataT dt <*> pure (refToDesug a)
-desugarTopTerm (ItfTerm itf a) = ItfTerm <$> desugarItf itf <*> pure (refToDesug a)
+desugarTopTerm (InterfaceTerm itf a) = InterfaceTerm <$> desugarInterface itf <*> pure (refToDesug a)
 desugarTopTerm (DefTerm def a) = DefTerm <$> desugarMultiHandlerDefinition def <*> pure (refToDesug a)
 
 -- explicit refinements:
@@ -89,8 +89,8 @@ desugarDataT (DT dt ps ctrs a) = do
 
 -- explicit refinements:
 -- + type variables get fresh ids
-desugarItf :: Itf Refined -> Desugar (Itf Desugared)
-desugarItf (Itf itf ps cmds a) = do
+desugarInterface :: Interface Refined -> Desugar (Interface Desugared)
+desugarInterface (MkInterface itf ps cmds a) = do
   -- generate fresh ids for type variables
   xs' <- mapM (freshRigid . fst) ps
   let env' = M.fromList [(x, RTVar x' a') | ((x, VT), x') <- zip ps xs']        -- map old value type variables to fresh ones
@@ -105,15 +105,15 @@ desugarItf (Itf itf ps cmds a) = do
   -- reset afterwards, too
   putEnv env'
   putAbModEnv abModEnv'
-  return $ Itf itf ps' cmds' a'
+  return $ MkInterface itf ps' cmds' a'
   where a' = refToDesug a
 
 -- no explicit refinements
 desugarMultiHandlerDefinition :: MultiHandlerDefinition Refined -> Desugar (MultiHandlerDefinition Desugared)
-desugarMultiHandlerDefinition (Def hdr ty xs a) = do
-  ty' <- desugarCType ty
+desugarMultiHandlerDefinition (MkDef hdr ty xs a) = do
+  ty' <- desugarCompType ty
   xs' <- mapM desugarClause xs
-  return $ Def hdr ty' xs' (refToDesug a)
+  return $ MkDef hdr ty' xs' (refToDesug a)
 
 -- explicit refinements:
 -- + type variables get fresh ids
@@ -128,60 +128,62 @@ desugarCmd (Cmd cmd  ps                 xs       y a) = do
   putAbModEnv $ M.fromList [(p, AbRVar p' a') | ((p, ET), p') <- zip ps ps']
   -- [(new var name, val or eff)]
   let ps'' = [(p', k) | ((_, k), p') <- zip ps ps']
-  xs' <- mapM desugarVType xs
-  y' <- desugarVType y
+  xs' <- mapM desugarValueType xs
+  y' <- desugarValueType y
   return $ Cmd cmd ps'' xs' y' a'
   where a' = refToDesug a
 
 -- no explicit refinements
 desugarCtr :: Ctr Refined -> Desugar (Ctr Desugared)
 desugarCtr (Ctr ctr xs a) = do
-  xs' <- mapM desugarVType xs
+  xs' <- mapM desugarValueType xs
   return $ Ctr ctr xs' (refToDesug a)
 
 -- explicit refinements:
 -- + replace val ty vars by corresponding MkRTVar's of env,
 --   generate new fresh one and add if not in env yet
 -- + replace 'String' by 'List Char'
-desugarVType :: VType Refined -> Desugar (VType Desugared)
-desugarVType (TVar x a) =
+desugarValueType :: ValueType Refined -> Desugar (ValueType Desugared)
+desugarValueType (TVar x a) =
   do env <- getEnv
      case M.lookup x env of
        Nothing -> do ty <- freshRTVar x (refToDesug a)
                      putEnv $ M.insert x ty env
                      return ty
        Just ty -> return ty
-desugarVType (DTTy dt ts a) = do ts' <- mapM desugarTyArg ts
-                                 return $ DTTy dt ts' (refToDesug a)
-desugarVType (SCTy ty a) = do ty' <- desugarCType ty
-                              return $ SCTy ty' (refToDesug a)
+desugarValueType (DTTy dt ts a) = do
+  ts' <- mapM desugarTypeArg ts
+  return $ DTTy dt ts' (refToDesug a)
+desugarValueType (SCTy ty a) = do
+  ty' <- desugarCompType ty
+  return $ SCTy ty' (refToDesug a)
 -- replace 'String' by 'List Char'
-desugarVType (StringTy a) = return $ desugaredStrTy (refToDesug a)
-desugarVType (IntTy a) = return $ IntTy (refToDesug a)
-desugarVType (CharTy a) = return $ CharTy (refToDesug a)
+desugarValueType (StringTy a) = return $ desugaredStrTy (refToDesug a)
+desugarValueType (IntTy a) = return $ IntTy (refToDesug a)
+desugarValueType (CharTy a) = return $ CharTy (refToDesug a)
 
 -- nothing happens on this level
-desugarTyArg :: TyArg Refined -> Desugar (TyArg Desugared)
-desugarTyArg (VArg t a) = VArg <$> desugarVType t <*> pure (refToDesug a)
-desugarTyArg (EArg ab a) = EArg <$> desugarAb ab <*> pure (refToDesug a)
+desugarTypeArg :: TypeArg Refined -> Desugar (TypeArg Desugared)
+desugarTypeArg (VArg t a) = VArg <$> desugarValueType t <*> pure (refToDesug a)
+desugarTypeArg (EArg ab a) = EArg <$> desugarAb ab <*> pure (refToDesug a)
 
 -- nothing happens on this level
-desugarCType :: CType Refined -> Desugar (CType Desugared)
-desugarCType (CType ports peg a) =
-  CType <$> mapM desugarPort ports <*> desugarPeg peg <*> pure (refToDesug a)
+desugarCompType :: CompType Refined -> Desugar (CompType Desugared)
+desugarCompType (CompType ports peg a) =
+  CompType <$> mapM desugarPort ports <*> desugarPeg peg <*> pure (refToDesug a)
 
 desugarPort :: Port Refined -> Desugar (Port Desugared)
 desugarPort (Port adjs ty a) = Port <$> mapM desugarAdjustment adjs
-                                    <*> desugarVType ty
+                                    <*> desugarValueType ty
                                     <*> pure (refToDesug a)
 
 -- nothing happens on this level
 desugarPeg :: Peg Refined -> Desugar (Peg Desugared)
-desugarPeg (Peg ab ty a) = Peg <$> desugarAb ab <*> desugarVType ty <*> pure (refToDesug a)
+desugarPeg (Peg ab ty a) = Peg <$> desugarAb ab <*> desugarValueType ty <*> pure (refToDesug a)
 
 -- nothing happens on this level
 desugarAb :: Ab Refined -> Desugar (Ab Desugared)
-desugarAb (Ab v itfMap a) = Ab <$> desugarAbMod v <*> desugarItfMap itfMap <*> pure (refToDesug a)
+desugarAb (Ab v itfMap a) = Ab <$> desugarAbMod v <*> desugarInterfaceMap itfMap <*> pure (refToDesug a)
 
 -- explicit desugaring:
 -- + replace effect type variables by corresponding MkAbRVar's of abModEnv,
@@ -199,19 +201,21 @@ desugarAbMod (AbVar x a) =
 
 -- nothing happens on this level
 desugarAdjustment :: Adjustment Refined -> Desugar (Adjustment Desugared)
-desugarAdjustment (ConsAdj x ts a) = ConsAdj x <$> mapM desugarTyArg ts <*> pure (refToDesug a)
+desugarAdjustment (ConsAdj x ts a) = ConsAdj x <$> mapM desugarTypeArg ts <*> pure (refToDesug a)
 desugarAdjustment (AdaptorAdj adp a) = AdaptorAdj <$> desugarAdaptor adp <*> pure (refToDesug a)
 
-desugarItfMap :: ItfMap Refined -> Desugar (ItfMap Desugared)
-desugarItfMap (ItfMap m a) = do m' <- mapM (mapM (mapM desugarTyArg)) m
-                                return $ ItfMap m' (refToDesug a)
+desugarInterfaceMap :: InterfaceMap Refined -> Desugar (InterfaceMap Desugared)
+desugarInterfaceMap (InterfaceMap m a) = do
+  m' <- mapM (mapM (mapM desugarTypeArg)) m
+  return $ InterfaceMap m' (refToDesug a)
 
 -- no explicit desugaring: clauses (and constituents) unaffected between
 -- Refine/Desugar phase
 desugarClause :: Clause Refined -> Desugar (Clause Desugared)
-desugarClause (Cls ps tm a) = do ps' <- mapM desugarPattern ps
-                                 tm' <- desugarTerm tm
-                                 return $ Cls ps' tm' (refToDesug a)
+desugarClause (MkClause ps tm a) = do
+  ps' <- mapM desugarPattern ps
+  tm' <- desugarTerm tm
+  return $ MkClause ps' tm' (refToDesug a)
 
 desugarTerm :: Term Refined -> Desugar (Term Desugared)
 desugarTerm (SC x a) = SC <$> desugarSComp x <*> pure (refToDesug a)

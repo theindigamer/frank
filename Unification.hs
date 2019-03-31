@@ -33,18 +33,18 @@ onTop f = popEntry >>= focus
         focus e = onTop f >> modify (:< e)
 
 -- unify 2 val tys in current context
-unify :: VType Desugared -> VType Desugared -> Contextual ()                    -- corresponding rule in Gundry's thesis:
+unify :: ValueType Desugared -> ValueType Desugared -> Contextual ()                    -- corresponding rule in Gundry's thesis:
 unify t0 t1 = do logBeginUnify t0 t1
                  unify' t0 t1
                  logEndUnify t0 t1
   where
   unify' (DTTy dt0 ts0 _) (DTTy dt1 ts1 _)                                      -- decompose (modified)
     | dt0 == dt1 && eqLens ts0 ts1 =
-      zipWithM_ unifyTyArg ts0 ts1
+      zipWithM_ unifyTypeArg ts0 ts1
   unify' v1@(DTTy dt0 ts0 _) v2@(DTTy dt1 ts1 _)                                -- decompose fails
     | not $ eqLens ts0 ts1 =
     throwError $ errorUnifDiffNumberArgs v1 v2
-  unify' (SCTy cty0 _)   (SCTy cty1 _)        = unifyCType cty0 cty1
+  unify' (SCTy cty0 _)   (SCTy cty1 _)        = unifyCompType cty0 cty1
   unify' (RTVar a _)     (RTVar b _) | a == b = return ()
   unify' (IntTy _)       (IntTy _)            = return ()
   unify' (CharTy _)      (CharTy _)           = return ()
@@ -75,48 +75,48 @@ unifyAb ab0@(Ab v0 m0 a) ab1@(Ab v1 m1 b) =
   where unifyAb' :: Ab Desugared -> Ab Desugared -> Contextual ()
         -- Same eff ty vars leaves nothing to unify but instantiat's m0, m1
         unifyAb' ab0@(Ab v0 m1 _) ab1@(Ab v1 m2 _) | stripAnn v0 == stripAnn v1 =
-          catchError (unifyItfMap m1 m2) (unifyAbError ab0 ab1)
+          catchError (unifyInterfaceMap m1 m2) (unifyAbError ab0 ab1)
         -- Both eff ty vars are flexible
         unifyAb' (Ab (AbFVar x a') m1 a) (Ab (AbFVar y b') m2 b) =
           do -- For same occurrences of interfaces, their instantiat's must coincide
-             unifyItfMap (intersectItfMap m1 m2) (intersectItfMap m2 m1)
+             unifyInterfaceMap (intersectInterfaceMap m1 m2) (intersectInterfaceMap m2 m1)
              v <- AbFVar <$> freshMVar "£" <*> pure (Desugared Generated)
-             solveForEVar x a' [] (Ab v (m2 `cutItfMapSuffix` m1) a)  -- TODO: LC: locations assigned correctly?
-             solveForEVar y b' [] (Ab v (m1 `cutItfMapSuffix` m2) b)
+             solveForEVar x a' [] (Ab v (m2 `cutInterfaceMapSuffix` m1) a)  -- TODO: LC: locations assigned correctly?
+             solveForEVar y b' [] (Ab v (m1 `cutInterfaceMapSuffix` m2) b)
         -- One eff ty var is flexible, the other one either empty or rigid
         unifyAb' (Ab (AbFVar x a') m1 _) (Ab v m2 b)
-          | isItfMapEmpty (cutItfMapSuffix m1 m2) =
-            do unifyItfMap (intersectItfMap m1 m2) (intersectItfMap m2 m1)
-               solveForEVar x a' [] (Ab v (m2 `cutItfMapSuffix` m1) b)   -- TODO: LC: locations assigned correctly?
+          | isInterfaceMapEmpty (cutInterfaceMapSuffix m1 m2) =
+            do unifyInterfaceMap (intersectInterfaceMap m1 m2) (intersectInterfaceMap m2 m1)
+               solveForEVar x a' [] (Ab v (m2 `cutInterfaceMapSuffix` m1) b)   -- TODO: LC: locations assigned correctly?
         unifyAb' (Ab v m1 a) (Ab (AbFVar y b') m2 _)
-          | isItfMapEmpty (cutItfMapSuffix m2 m1) =
-            do unifyItfMap (intersectItfMap m1 m2) (intersectItfMap m2 m1)
-               solveForEVar y b' [] (Ab v (m1 `cutItfMapSuffix` m2) a)   -- TODO: LC: locations assigned correctly?
+          | isInterfaceMapEmpty (cutInterfaceMapSuffix m2 m1) =
+            do unifyInterfaceMap (intersectInterfaceMap m1 m2) (intersectInterfaceMap m2 m1)
+               solveForEVar y b' [] (Ab v (m1 `cutInterfaceMapSuffix` m2) a)   -- TODO: LC: locations assigned correctly?
         -- In any other case
         unifyAb' ab0 ab1 = throwError $ errorUnifAbs ab0 ab1
 
-unifyTyArg :: TyArg Desugared -> TyArg Desugared -> Contextual ()
-unifyTyArg (VArg t0 _) (VArg t1 _) = unify t0 t1
-unifyTyArg (EArg ab0 _) (EArg ab1 _) = unifyAb ab0 ab1
-unifyTyArg arg0 arg1 = throwError $ errorUnifTyArgs arg0 arg1
+unifyTypeArg :: TypeArg Desugared -> TypeArg Desugared -> Contextual ()
+unifyTypeArg (VArg t0 _) (VArg t1 _) = unify t0 t1
+unifyTypeArg (EArg ab0 _) (EArg ab1 _) = unifyAb ab0 ab1
+unifyTypeArg arg0 arg1 = throwError $ errorUnifTypeArgs arg0 arg1
 
 unifyAbError :: Ab Desugared -> Ab Desugared -> String -> Contextual ()
 unifyAbError ab0 ab1 _ = throwError $ errorUnifAbs ab0 ab1
 
 -- Given two interface maps, check that each instantiation has a unifiable
 -- counterpart in the other ability and unify.
-unifyItfMap :: ItfMap Desugared -> ItfMap Desugared -> Contextual ()
-unifyItfMap m0@(ItfMap m0' a) m1@(ItfMap m1' b) = do
-  mapM_ (unifyItfMap' m1) (M.toList m0')
-  mapM_ (unifyItfMap' m0) (M.toList m1')
-  where unifyItfMap' :: ItfMap Desugared -> (Identifier, Bwd [TyArg Desugared]) -> Contextual ()
-        unifyItfMap' (ItfMap m _) (x, insts) = case M.lookup x m of
-          Nothing -> throwError $ errorUnifItfMaps m0 m1
-          Just insts' -> if length insts /= length insts' then throwError $ errorUnifItfMaps m0 m1
-                         else zipWithM_ (zipWithM_ unifyTyArg) (bwd2fwd insts) (bwd2fwd insts')
+unifyInterfaceMap :: InterfaceMap Desugared -> InterfaceMap Desugared -> Contextual ()
+unifyInterfaceMap m0@(InterfaceMap m0' a) m1@(InterfaceMap m1' b) = do
+  mapM_ (unifyInterfaceMap' m1) (M.toList m0')
+  mapM_ (unifyInterfaceMap' m0) (M.toList m1')
+  where unifyInterfaceMap' :: InterfaceMap Desugared -> (Identifier, Bwd [TypeArg Desugared]) -> Contextual ()
+        unifyInterfaceMap' (InterfaceMap m _) (x, insts) = case M.lookup x m of
+          Nothing -> throwError $ errorUnifInterfaceMaps m0 m1
+          Just insts' -> if length insts /= length insts' then throwError $ errorUnifInterfaceMaps m0 m1
+                         else zipWithM_ (zipWithM_ unifyTypeArg) (bwd2fwd insts) (bwd2fwd insts')
 
-unifyCType :: CType Desugared -> CType Desugared -> Contextual ()
-unifyCType (CType xs p0 _) (CType ys p1 _) =
+unifyCompType :: CompType Desugared -> CompType Desugared -> Contextual ()
+unifyCompType (CompType xs p0 _) (CompType ys p1 _) =
   zipWithM_ unifyPort xs ys >> unifyPeg p0 p1
 
 unifyPeg :: Peg Desugared -> Peg Desugared -> Contextual ()
@@ -129,14 +129,14 @@ unifyPort :: Port Desugared -> Port Desugared -> Contextual ()
 unifyPort (Port adjs1 ty1 _) (Port adjs2 ty2 _) =
   do let (insts1, adps1) = adjsNormalForm adjs1
      let (insts2, adps2) = adjsNormalForm adjs2
-     unifyItfMap (ItfMap insts1 (Desugared Generated))  -- TODO: LC: fix this
-                 (ItfMap insts2 (Desugared Generated))
+     unifyInterfaceMap (InterfaceMap insts1 (Desugared Generated))  -- TODO: LC: fix this
+                 (InterfaceMap insts2 (Desugared Generated))
      if adps1 == adps2 then
        unify ty1 ty2
      else throwError "adaptors not the same"
 
 -- unify a meta variable "x" with a type "ty"
-solve :: Identifier -> Desugared -> Suffix -> VType Desugared -> Contextual ()
+solve :: Identifier -> Desugared -> Suffix -> ValueType Desugared -> Contextual ()
 solve x a ext ty = do logBeginSolve x ext ty
                       solve'
                       logEndSolve x ext ty
@@ -159,7 +159,7 @@ solveForEVar :: Identifier -> Desugared -> Suffix -> Ab Desugared -> Contextual 
 solveForEVar x a ext ab = onTop $ \y d ->
   case (x == y, S.member y (fmvAb ab), d) of
     (_, _, AbDefn ab') ->
-      let vab = Ab (AbFVar x a) (ItfMap M.empty a) a in
+      let vab = Ab (AbFVar x a) (InterfaceMap M.empty a) a in
       modify (<>< entrify ext) >>
       unifyAb (substEVarAb ab' y vab) (substEVarAb ab' y ab) >>
       restore
@@ -172,57 +172,57 @@ solveForEVar x a ext ab = onTop $ \y d ->
 
 {- Substitute "ty" for "x" in X -}
 
-subst :: VType Desugared -> Identifier -> VType Desugared -> VType Desugared
-subst ty x (DTTy dt ts a) = DTTy dt (map (substTyArg ty x) ts) a
-subst ty x (SCTy cty a) = SCTy (substCType ty x cty) a
+subst :: ValueType Desugared -> Identifier -> ValueType Desugared -> ValueType Desugared
+subst ty x (DTTy dt ts a) = DTTy dt (map (substTypeArg ty x) ts) a
+subst ty x (SCTy cty a) = SCTy (substCompType ty x cty) a
 subst ty x (FTVar y a) | x == y = ty
 subst _ _ ty = ty
 
-substAb :: VType Desugared -> Identifier -> Ab Desugared -> Ab Desugared
-substAb ty x (Ab v (ItfMap m a') a) = Ab v (ItfMap m' a') a
-  where m' = fmap (fmap (map (substTyArg ty x))) m
+substAb :: ValueType Desugared -> Identifier -> Ab Desugared -> Ab Desugared
+substAb ty x (Ab v (InterfaceMap m a') a) = Ab v (InterfaceMap m' a') a
+  where m' = fmap (fmap (map (substTypeArg ty x))) m
 
-substTyArg :: VType Desugared -> Identifier -> TyArg Desugared -> TyArg Desugared
-substTyArg ty x (VArg t a) = VArg (subst ty x t) a
-substTyArg ty x (EArg ab a) = EArg (substAb ty x ab) a
+substTypeArg :: ValueType Desugared -> Identifier -> TypeArg Desugared -> TypeArg Desugared
+substTypeArg ty x (VArg t a) = VArg (subst ty x t) a
+substTypeArg ty x (EArg ab a) = EArg (substAb ty x ab) a
 
-substAdj :: VType Desugared -> Identifier -> Adjustment Desugared -> Adjustment Desugared
-substAdj ty x (ConsAdj y ts a) = ConsAdj y (map (substTyArg ty x) ts) a
+substAdj :: ValueType Desugared -> Identifier -> Adjustment Desugared -> Adjustment Desugared
+substAdj ty x (ConsAdj y ts a) = ConsAdj y (map (substTypeArg ty x) ts) a
 substAdj ty x (AdaptorAdj adp a) = AdaptorAdj adp a
 
-substCType :: VType Desugared -> Identifier -> CType Desugared -> CType Desugared
-substCType ty x (CType ps peg a) =
-  CType (map (substPort ty x) ps) (substPeg ty x peg) a
+substCompType :: ValueType Desugared -> Identifier -> CompType Desugared -> CompType Desugared
+substCompType ty x (CompType ps peg a) =
+  CompType (map (substPort ty x) ps) (substPeg ty x peg) a
 
-substPeg :: VType Desugared -> Identifier -> Peg Desugared -> Peg Desugared
+substPeg :: ValueType Desugared -> Identifier -> Peg Desugared -> Peg Desugared
 substPeg ty x (Peg ab pty a) = Peg (substAb ty x ab) (subst ty x pty) a
 
-substPort :: VType Desugared -> Identifier -> Port Desugared -> Port Desugared
+substPort :: ValueType Desugared -> Identifier -> Port Desugared -> Port Desugared
 substPort ty x (Port adjs pty a) = Port (map (substAdj ty x) adjs) (subst ty x pty) a
 
-substEVar :: Ab Desugared -> Identifier -> VType Desugared -> VType Desugared
-substEVar ab x (DTTy dt ts a) = DTTy dt (map (substEVarTyArg ab x) ts) a
-substEVar ab x (SCTy cty a) = SCTy (substEVarCType ab x cty) a
+substEVar :: Ab Desugared -> Identifier -> ValueType Desugared -> ValueType Desugared
+substEVar ab x (DTTy dt ts a) = DTTy dt (map (substEVarTypeArg ab x) ts) a
+substEVar ab x (SCTy cty a) = SCTy (substEVarCompType ab x cty) a
 substEVar _ _ ty = ty
 
 -- substitute "ab" for "x" in AB
 substEVarAb :: Ab Desugared -> Identifier -> Ab Desugared -> Ab Desugared
-substEVarAb ab@(Ab v m' _) x (Ab (AbFVar y a) (ItfMap m ann') ann) | x == y =
+substEVarAb ab@(Ab v m' _) x (Ab (AbFVar y a) (InterfaceMap m ann') ann) | x == y =
   Ab v m'' ann
-  where m'' = plusItfMap m' (ItfMap (fmap (fmap (map (substEVarTyArg ab x))) m) ann')
-substEVarAb ab x (Ab v (ItfMap m a') a) = Ab v (ItfMap (M.map (fmap (map (substEVarTyArg ab x))) m) a') a
+  where m'' = plusInterfaceMap m' (InterfaceMap (fmap (fmap (map (substEVarTypeArg ab x))) m) ann')
+substEVarAb ab x (Ab v (InterfaceMap m a') a) = Ab v (InterfaceMap (M.map (fmap (map (substEVarTypeArg ab x))) m) a') a
 
-substEVarTyArg :: Ab Desugared -> Identifier -> TyArg Desugared -> TyArg Desugared
-substEVarTyArg ab x (VArg t a)  = VArg (substEVar ab x t) a
-substEVarTyArg ab x (EArg ab' a) = EArg (substEVarAb ab x ab') a
+substEVarTypeArg :: Ab Desugared -> Identifier -> TypeArg Desugared -> TypeArg Desugared
+substEVarTypeArg ab x (VArg t a)  = VArg (substEVar ab x t) a
+substEVarTypeArg ab x (EArg ab' a) = EArg (substEVarAb ab x ab') a
 
 substEVarAdj :: Ab Desugared -> Identifier -> Adjustment Desugared -> Adjustment Desugared
-substEVarAdj ab x (ConsAdj y ts a) = ConsAdj y (map (substEVarTyArg ab x) ts) a
+substEVarAdj ab x (ConsAdj y ts a) = ConsAdj y (map (substEVarTypeArg ab x) ts) a
 substEvarAdj ab x (AdaptorAdj adp a) = AdaptorAdj adp a
 
-substEVarCType :: Ab Desugared -> Identifier -> CType Desugared -> CType Desugared
-substEVarCType ab x (CType ps peg a) =
-  CType (map (substEVarPort ab x) ps) (substEVarPeg ab x peg) a
+substEVarCompType :: Ab Desugared -> Identifier -> CompType Desugared -> CompType Desugared
+substEVarCompType ab x (CompType ps peg a) =
+  CompType (map (substEVarPort ab x) ps) (substEVarPeg ab x peg) a
 
 substEVarPeg :: Ab Desugared -> Identifier -> Peg Desugared -> Peg Desugared
 substEVarPeg ab' x (Peg ab pty a) =

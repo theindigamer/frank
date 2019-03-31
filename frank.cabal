@@ -15,14 +15,14 @@ executable frank
                        , shonky/src
   other-modules: BwdFwd
                , Compile
-               , DesugarSyntax
+               , Syntax.Desugar
                , FreshNames
                , Parser
                , ParserCommon
-               , RefineSyntax
+               , Syntax.Refine
                , RefineSyntaxCommon
-               , RefineSyntaxConcretiseEps
-               , RefineSyntaxSubstitItfAliases
+               , Syntax.Refine.ConcretiseEps
+               , Syntax.Refine.SubstituteInterfaceAliases
                , Shonky.Semantics
                , Shonky.Syntax
                , Shonky.Renaming

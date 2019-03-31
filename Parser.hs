@@ -46,9 +46,9 @@ defOrInc = choice [Left <$> def,
 def :: MonadicParsing m => m (TopTerm Raw)
 def = attachLoc (DataTerm <$> dataDef <|>
                  SigTerm <$> handlerTopSig <|>
-                 ClsTerm <$> handlerTopCls <|>
-                 ItfAliasTerm <$> itfAliasDef <|>
-                 ItfTerm <$> itfDef)
+                 ClauseTerm <$> handlerTopCls <|>
+                 InterfaceAliasTerm <$> itfAliasDef <|>
+                 InterfaceTerm <$> itfDef)
 
 dataDef :: MonadicParsing m => m (DataT Raw)
 dataDef = attachLoc $ do reserved "data"
@@ -75,8 +75,9 @@ ctr :: MonadicParsing m => m (Ctr Raw)
 ctr = attachLoc $ Ctr <$> identifier <*> many vtype'
 
 handlerTopSig :: MonadicParsing m => m (MultiHandlerSignature Raw)
-handlerTopSig = attachLoc $ Sig <$> try (identifier <* symbol ":") -- try: commit after colon
-                                <*> sigType
+handlerTopSig = attachLoc $ MkSig
+  <$> try (identifier <* symbol ":") -- try: commit after colon
+  <*> sigType
 
 -- As the outer braces are optional in top-level signatures we require
 -- that plain pegs must have explicit ability brackets.
@@ -94,39 +95,40 @@ handlerTopSig = attachLoc $ Sig <$> try (identifier <* symbol ":") -- try: commi
 -- will become valid, but will not mean the same thing as:
 --
 --   x : []Int
-sigType :: MonadicParsing m => m (CType Raw)
+sigType :: MonadicParsing m => m (CompType Raw)
 sigType = (do a <- getLoc
               ct <- ctypeOld
               rest <- optional (symbol "->" *> ctypeOldNoBrac)
               return $
                 case rest of
                   Nothing -> setAnn a ct
-                  Just (CType ports peg a') ->
-                        CType (Port [] (SCTy ct a') a' : ports) peg a) <|>
+                  Just (CompType ports peg a') ->
+                        CompType (Port [] (SCTy ct a') a' : ports) peg a) <|>
           -- TODO: LC: Integrate the new syntax properly...
           -- Part of new syntax [...]{... -> A} instead of {... -> [...]A}
           try ctypeNew
           <|> attachLoc (do ports <- some (try (portP <* symbol "->"))
-                            CType ports <$> pegP)
-          <|> attachLoc (CType [] <$> pegExplicit)
+                            CompType ports <$> pegP)
+          <|> attachLoc (CompType [] <$> pegExplicit)
 
-handlerTopCls :: MonadicParsing m => m (MHCls Raw)
+handlerTopCls :: MonadicParsing m => m (MultiHandlerClause Raw)
 handlerTopCls = provideLoc $ \a -> do
-  (name, ps) <- try $ do name <- identifier
-                         ps <- choice [some patternP, symbol "!" >> return []]
-                         symbol "="
-                         return (name, ps)
+  (name, ps) <- try $ do
+    name <- identifier
+    ps <- choice [some patternP, symbol "!" >> return []]
+    symbol "="
+    return (name, ps)
   seq <- localIndentation Gt tm
-  return $ MHCls name (Cls ps seq a) a
+  return $ MkMHClause name (MkClause ps seq a) a
 
-itfDef :: MonadicParsing m => m (Itf Raw)
+itfDef :: MonadicParsing m => m (Interface Raw)
 itfDef = attachLoc $ do
-             reserved "interface"
-             name <- identifier
-             ps <- many tyVar
-             symbol "="
-             xs <- localIndentation Gt $ sepBy1 cmdDef (symbol "|")
-             return (Itf name ps xs)
+  reserved "interface"
+  name <- identifier
+  ps <- many tyVar
+  symbol "="
+  xs <- localIndentation Gt $ sepBy1 cmdDef (symbol "|")
+  return (MkInterface name ps xs)
 
 cmdDef :: MonadicParsing m => m (Cmd Raw)
 cmdDef = attachLoc $ do cmd <- identifier
@@ -136,12 +138,12 @@ cmdDef = attachLoc $ do cmd <- identifier
                         return (Cmd cmd ps xs y)
 
 -- input types, output type
-cmdDefType :: MonadicParsing m => m ([VType Raw], VType Raw)
+cmdDefType :: MonadicParsing m => m ([ValueType Raw], ValueType Raw)
 cmdDefType = do vs <- sepBy1 vtype (symbol "->")
                 if length vs == 1 then return ([],head vs)
                 else return (init vs, last vs)
 
-itfAliasDef :: MonadicParsing m => m (ItfAlias Raw)
+itfAliasDef :: MonadicParsing m => m (InterfaceAlias Raw)
 itfAliasDef = attachLoc $ do
   (name, ps) <- try $ do reserved "interface"
                          name <- identifier
@@ -151,35 +153,35 @@ itfAliasDef = attachLoc $ do
                          return (name, ps)
   m <- itfInstances
   symbol "]"
-  return $ ItfAlias name ps m
+  return $ MkInterfaceAlias name ps m
 
 -----------
 -- Types --
 -----------
 
 -- Supports both syntaxes [...]{... -> A} and {... -> [...]A}
-ctype :: MonadicParsing m => m (CType Raw)
+ctype :: MonadicParsing m => m (CompType Raw)
 ctype = ctypeNew <|> ctypeOld
 
 -- New syntax [...]{... -> A}, must have explicit [...]
-ctypeNew :: MonadicParsing m => m (CType Raw)
+ctypeNew :: MonadicParsing m => m (CompType Raw)
 ctypeNew = do ab <- abExplicit
               sndPart ab
   where
-  sndPart :: MonadicParsing m => Ab Raw -> m (CType Raw)
+  sndPart :: MonadicParsing m => Ab Raw -> m (CompType Raw)
   sndPart ab = braces (attachLoc $ do ports <- many (try (portP <* symbol "->"))
                                       peg <- pegSndPart ab
-                                      return $ CType ports peg)
+                                      return $ CompType ports peg)
   pegSndPart :: MonadicParsing m => Ab Raw -> m (Peg Raw)
   pegSndPart ab = attachLoc $ Peg ab <$> vtype
 
 -- Old syntax {... -> [...]A}, does not need to have explicit [...]
-ctypeOld :: MonadicParsing m => m (CType Raw)
+ctypeOld :: MonadicParsing m => m (CompType Raw)
 ctypeOld = braces ctypeOldNoBrac
 
-ctypeOldNoBrac :: MonadicParsing m => m (CType Raw)
+ctypeOldNoBrac :: MonadicParsing m => m (CompType Raw)
 ctypeOldNoBrac = attachLoc $ do ports <- many (try (portP <* symbol "->"))
-                                CType ports <$> pegP
+                                CompType ports <$> pegP
 
 portP :: MonadicParsing m => m (Port Raw)
 portP = attachLoc $ Port <$> portAdjs <*> vtype
@@ -221,13 +223,13 @@ consAdj :: MonadicParsing m => m (Adjustment Raw)
 consAdj = attachLoc $ ConsAdj <$> identifier <*> many tyArg
 
 -- TODO: LC: Name consistently `instances` or `instantiations`
-itfInstances :: MonadicParsing m => m (ItfMap Raw)
+itfInstances :: MonadicParsing m => m (InterfaceMap Raw)
 itfInstances = do
   a <- getLoc
   insts <- sepBy itfInstance (symbol ",")
-  return $ foldl addInstanceToItfMap (ItfMap M.empty a) insts
+  return $ foldl addInstanceToInterfaceMap (InterfaceMap M.empty a) insts
 
-itfInstance :: MonadicParsing m => m (Identifier, [TyArg Raw])
+itfInstance :: MonadicParsing m => m (Identifier, [TypeArg Raw])
 itfInstance = do x <- identifier
                  ts <- many tyArg
                  return (x, ts)
@@ -236,7 +238,7 @@ ab :: MonadicParsing m => m (Ab Raw)
 ab = do mxs <- optional abExplicit
         case mxs of
           Nothing -> provideLoc $ \a ->
-            return $ Ab (AbVar "£" a) (ItfMap M.empty a) a
+            return $ Ab (AbVar "£" a) (InterfaceMap M.empty a) a
           Just ab -> return ab
 
 abExplicit :: MonadicParsing m => m (Ab Raw)
@@ -247,7 +249,7 @@ abBody :: MonadicParsing m => m (Ab Raw)
 abBody = provideLoc $ \a ->
            -- closed ability: [0] or [0 | i_1, ... i_n]
            (do symbol "0"
-               m <- option (ItfMap M.empty a) (symbol "|" *> itfInstances)
+               m <- option (InterfaceMap M.empty a) (symbol "|" *> itfInstances)
                return $ Ab (EmpAb a) m a) <|>
            -- open ability:   [i_1, ..., i_n] (implicitly e := £) or
            -- [e | i_1, ..., i_n]
@@ -258,7 +260,7 @@ abBody = provideLoc $ \a ->
 
 -- This parser gives higher precedence to MkDTTy when coming across "X"
 -- E.g., the type "X" becomes   MkDTTy "X" []   (instead of MkTVar "X")
-vtype :: MonadicParsing m => m (VType Raw)
+vtype :: MonadicParsing m => m (ValueType Raw)
 vtype = try dataInstance <|> -- could possibly also be a MKTvar (determined
                                  -- during refinement)
              vtype'
@@ -266,7 +268,7 @@ vtype = try dataInstance <|> -- could possibly also be a MKTvar (determined
 -- This parser gives higher precedence to MkTVar when coming across "X"
 -- E.g., the type "X" becomes   MkTVar "X"   (instead of MkDTTy "X" [])
 -- By writing "(X)" one can escape back to vtype
-vtype' :: MonadicParsing m => m (VType Raw)
+vtype' :: MonadicParsing m => m (ValueType Raw)
 vtype' = parens vtype
   <|> attachLoc (SCTy <$> try ctype)
   <|> attachLoc (StringTy <$ reserved "String")
@@ -275,12 +277,12 @@ vtype' = parens vtype
   <|> -- could possibly also be a MkDTTy (determined during refinement)
       attachLoc (TVar <$> identifier)
 
-tyArg :: MonadicParsing m => m (TyArg Raw)
+tyArg :: MonadicParsing m => m (TypeArg Raw)
 tyArg = attachLoc $ VArg <$> vtype' <|>
                     EArg <$> abExplicit
 
 -- Parse a potential datatype. Note it may actually be a type variable.
-dataInstance :: MonadicParsing m => m (VType Raw)
+dataInstance :: MonadicParsing m => m (ValueType Raw)
 dataInstance = attachLoc $ do x <- identifier
                               args <- localIndentation Gt $ many tyArg
                               return $ DTTy x args
@@ -441,7 +443,7 @@ suspComp = attachLoc $ localIndentation Gt $ absoluteIndentation $
                 return $ SComp cs
 
 anonymousCls :: MonadicParsing m => m (Clause Raw)
-anonymousCls = attachLoc $ Cls <$> choice [try patterns, pure []] <*> tm
+anonymousCls = attachLoc $ MkClause <$> choice [try patterns, pure []] <*> tm
   where
     patterns = choice [some patternP, symbol "!" >> return []] <* symbol "->"
 
