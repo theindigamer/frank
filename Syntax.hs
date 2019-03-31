@@ -6,6 +6,7 @@ module Syntax where
 
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
+import Data.Maybe (fromMaybe)
 import Data.List
 import Data.Functor.Identity
 
@@ -36,7 +37,7 @@ type TFix (t :: (* -> *) -> (* -> *))
 -- Takes an annotation object "a",
 --                  a functor "f",
 --              recursor type "r"
-data AnnotT a f r = AnnF (f r, a)
+newtype AnnotT a f r = AnnF (f r, a)
 deriving instance (Show (f r), Show a) => Show (AnnotT a f r)
 deriving instance (Eq (f r), Eq a) => Eq (AnnotT a f r)
 
@@ -124,7 +125,7 @@ instance HasSource Desugared where getSource (Desugared s) = s
 -- - require Raw/Refined/Desugared:   t = AnnotT Raw
 -- - require NotRaw / NotDesugared:   NotRaw (t Identity ()) =>   annotation
 
-data Prog t = MkProg [TopTm t]
+newtype Prog t = MkProg [TopTm t]
 deriving instance Show t => Show (Prog t)
 deriving instance Eq t => Eq (Prog t)
 
@@ -689,24 +690,20 @@ adjsNormalForm = foldl (flip addAdjNormalForm) (M.empty, M.empty)
 addAdjNormalForm :: Adjustment Desugared ->
   (M.Map Identifier (Bwd [TyArg Desugared]), M.Map Identifier Renaming) ->
   (M.Map Identifier (Bwd [TyArg Desugared]), M.Map Identifier Renaming)
-addAdjNormalForm (ConsAdj x ts a) (insts, adps) = (
-  adjustWithDefault (:< ts) x BEmp insts,
-  adjustWithDefault (\(rs, r) ->
-    (renToNormalForm (0:(map (+1) rs), r+1))) x renIdentifier adps)
-addAdjNormalForm (AdaptorAdj adp@(CompilableAdp x m ns _) a) (insts, adps) = (
-  insts,
-  adjustWithDefault (\r ->
-    (renToNormalForm $ renCompose (adpToRen adp) r)) x renIdentifier adps)
+addAdjNormalForm (ConsAdj x ts a) (insts, adps) =
+  ( adjustWithDefault (:< ts) x BEmp insts
+  , adjustWithDefault (\(rs, r) -> renToNormalForm (0 : map (+ 1) rs, r + 1)) x renIdentifier adps
+  )
+addAdjNormalForm (AdaptorAdj adp@(CompilableAdp x m ns _) a) (insts, adps) =
+  ( insts
+  , adjustWithDefault (renToNormalForm . renCompose (adpToRen adp)) x renIdentifier adps
+  )
 -- TODO: LC: double-check that the last line is correct
 
 -- helpers
 
 adjustWithDefault :: Ord k => (a -> a) -> k -> a -> M.Map k a -> M.Map k a
-adjustWithDefault f k def m =
-  let g = \x -> case x of Nothing -> Just def
-                          _ -> x
-  in
-  M.adjust f k (M.alter g k m)
+adjustWithDefault f k def = M.alter (Just . f . fromMaybe def) k
 
 adpToRen :: Adaptor Desugared -> Renaming
 adpToRen (CompilableAdp x m ns _) = (reverse ns, m)
