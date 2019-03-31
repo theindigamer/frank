@@ -32,7 +32,7 @@ testShonky =
 
 type Compile = State CState
 
-type ItfCmdMap = M.Map Id [Id]
+type ItfCmdMap = M.Map Identifier [Identifier]
 
 data CState = MkCState { imap :: ItfCmdMap
                        , atoms :: S.Set String}
@@ -46,15 +46,15 @@ getCState = get
 putCState :: CState -> Compile ()
 putCState = put
 
-getCCmds :: Id -> Compile [Id]
+getCCmds :: Identifier -> Compile [Identifier]
 getCCmds itf = do s <- getCState
                   return $ M.findWithDefault [] itf (imap s)
 
-addAtom :: Id -> Compile ()
+addAtom :: Identifier -> Compile ()
 addAtom id = do s <- getCState
                 putCState $ s { atoms = S.insert id (atoms s) }
 
-isAtom :: Id -> Compile Bool
+isAtom :: Identifier -> Compile Bool
 isAtom id = do s <- getCState
                return $ S.member id (atoms s)
 
@@ -67,7 +67,7 @@ compile (MkProg xs) = res
         st = initialiseItfMap initCState [i | ItfTm i _ <- xs]
 
 compile' :: [TopTm Desugared] -> Compile [S.Def S.Exp]
-compile' xs = do liftM concat $ mapM compileTopTm xs
+compile' xs = concat <$> mapM compileTopTm xs
 
 initialiseItfMap :: CState -> [Itf Desugared] -> CState
 initialiseItfMap st xs = st { imap = foldl f (imap st) xs }
@@ -79,7 +79,7 @@ initialiseItfMap st xs = st { imap = foldl f (imap st) xs }
 compileTopTm :: TopTm Desugared -> Compile [S.Def S.Exp]
 compileTopTm (DataTm x _) = compileDatatype x
 compileTopTm (DefTm x@(Def id _ _ _) _) =
-  if isBuiltin id then return []  else do def <- compileMHDef x
+  if isBuiltin id then return []  else do def <- compileMultiHandlerDefinition x
                                           return $ [def]
 compileTopTm _ = return [] -- interfaces are ignored for now. add to a map?
 
@@ -108,10 +108,11 @@ compileCtr (Ctr id ts _) =
 
 -- use the type to generate the signature of commands handled
 -- generate a clause 1-to-1 correspondence
-compileMHDef :: MHDef Desugared -> Compile (S.Def S.Exp)
-compileMHDef (Def id ty xs _) = do xs' <- mapM compileClause xs
-                                   tyRep <- compileCType ty
-                                   return $ S.DF id tyRep xs'
+compileMultiHandlerDefinition :: MultiHandlerDefinition Desugared -> Compile (S.Def S.Exp)
+compileMultiHandlerDefinition (Def id ty xs _) =
+  do xs' <- mapM compileClause xs
+     tyRep <- compileCType ty
+     return $ S.DF id tyRep xs'
 
 compileCType :: CType Desugared -> Compile [([S.Adap], [String])]
 compileCType (CType xs _ _) = mapM compilePort xs
@@ -194,15 +195,15 @@ compileSComp (SComp xs _) = S.EF <$> pure [([], [])] <*> mapM compileClause xs
 -- TODO: LC: Fix this!
 
 compileOp :: Operator Desugared -> Compile S.Exp
-compileOp (Mono id _) = case M.lookup id builtins of
+compileOp (Mono ident _) = case M.lookup ident builtins of
   Just v -> return $ S.EV v
-  Nothing ->  do b <- isAtom id
-                 return $ if b then S.EA id
-                          else S.EV id
-compileOp (Poly id _) = case M.lookup id builtins of
+  Nothing ->  do b <- isAtom ident
+                 return $ if b then S.EA ident
+                          else S.EV ident
+compileOp (Poly ident _) = case M.lookup ident builtins of
   Just v -> return $ S.EV v
-  Nothing -> return $ S.EV id
-compileOp (CmdId id _) = return $ S.EA id
+  Nothing -> return $ S.EV ident
+compileOp (CmdIdentifier ident _) = return $ S.EA ident
 
 builtins :: M.Map String String
 builtins = M.fromList [("+", "plus")

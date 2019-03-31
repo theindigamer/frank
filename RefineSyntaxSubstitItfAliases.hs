@@ -19,9 +19,9 @@ import Debug
 -- Given an occurrence of interface instantiation x t_1 ... t_n:
 -- 1) Implicit [£] are made explicit
 -- 2) Determine whether it is an interface alias and if so, recursiv. substitute
-substitItfAls :: (Id, [TyArg Raw]) -> Refine (ItfMap Raw)
+substitItfAls :: (Identifier, [TyArg Raw]) -> Refine (ItfMap Raw)
 substitItfAls = substitItfAls' [] where
-  substitItfAls' :: [Id] -> (Id, [TyArg Raw]) -> Refine (ItfMap Raw)
+  substitItfAls' :: [Identifier] -> (Identifier, [TyArg Raw]) -> Refine (ItfMap Raw)
   substitItfAls' visited (x, ts) = do
     itfAls <- getRItfAliases
     if x `notElem` visited then
@@ -51,19 +51,19 @@ substitItfAls = substitItfAls' [] where
              return m''
     else throwError $ errorRefItfAlCycle x
 
-type Subst = [((Id, Kind), TyArg Raw)]
+type Subst = [((Identifier, Kind), TyArg Raw)]
 
-substLookupVT :: Subst -> Id -> Maybe (VType Raw)
+substLookupVT :: Subst -> Identifier -> Maybe (VType Raw)
 substLookupVT subst x = case find (\((x', k), y) -> x' == x && k == VT) subst of
   Just (_, VArg ty a) -> Just ty
   _                    -> Nothing
 
-substLookupET :: Subst -> Id -> Maybe (Ab Raw)
+substLookupET :: Subst -> Identifier -> Maybe (Ab Raw)
 substLookupET subst x = case find (\((x', k), y) -> x' == x && k == ET) subst of
   Just (_, EArg ab a) -> Just ab
   _                    -> Nothing
 
-substitInTyArgs :: Subst -> (Id, [TyArg Raw]) -> Refine (Id, [TyArg Raw])
+substitInTyArgs :: Subst -> (Identifier, [TyArg Raw]) -> Refine (Identifier, [TyArg Raw])
 substitInTyArgs subst (x, ts) = do ts' <- mapM (substitInTyArg subst) ts
                                    return (x, ts')
 -- Replace (x, VT/ET) by ty-arg
@@ -119,7 +119,7 @@ substitInItfMap subst (ItfMap m a) = ItfMap <$> mapM (mapM (mapM (substitInTyArg
 
 -- helpers
 
-checkArgs :: Id -> Int -> Int -> Raw -> Refine ()
+checkArgs :: Identifier -> Int -> Int -> Raw -> Refine ()
 checkArgs x exp act a =
   when (exp /= act) $
     throwError $ errorRefNumberOfArguments x exp act a

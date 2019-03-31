@@ -23,7 +23,7 @@ import Debug
 
 import Shonky.Renaming
 
-type EVMap a = M.Map Id (Ab a)
+type EVMap a = M.Map Identifier (Ab a)
 
 -- Given an operator, reconstruct its corresponding type assigned via context
 -- 1) x is command of interface itf:
@@ -35,7 +35,7 @@ type EVMap a = M.Map Id (Ab a)
 --         polytypic (i.e., multi-handler)
 --    - It must have been assigned a type in the context, return it
 find :: Operator Desugared -> Contextual (VType Desugared)
-find (CmdId x a) =
+find (CmdIdentifier x a) =
   do amb <- getAmbient
      (itf, qs, rs, ts, y) <- getCmd x
      -- interface itf q_1 ... q_m = x r1 ... r_l: t_1 -> ... -> t_n -> y
@@ -75,7 +75,7 @@ find x = getContext >>= find'
         find' (es :< _) = find' es
 
 -- Find the first flexible type definition (as opposed to a hole) in ctx for x
-findFTVar :: Id -> Contextual (Maybe (VType Desugared))
+findFTVar :: Identifier -> Contextual (Maybe (VType Desugared))
 findFTVar x = getContext >>= find'
   where find' BEmp = return Nothing
         find' (es :< FlexMVar y (TyDefn ty)) | x == y = return $ Just ty
@@ -105,7 +105,7 @@ inAmbient amb m = do oldAmb <- getAmbient
 
 -- Return the n-th right-most instantiation of the interface in the given
 -- ability. Return Nothing if the interface is not part of the ability.
-lkpItf :: Id -> Int -> Ab Desugared -> Contextual (Maybe [TyArg Desugared])
+lkpItf :: Identifier -> Int -> Ab Desugared -> Contextual (Maybe [TyArg Desugared])
 lkpItf itf n (Ab v (ItfMap m _) _) =
   case M.lookup itf m of
     Just xs
@@ -113,7 +113,7 @@ lkpItf itf n (Ab v (ItfMap m _) _) =
       | otherwise               -> lkpItfInAbMod itf (n - length (bwd2fwd xs)) v
     _ -> lkpItfInAbMod itf n v
 
-lkpItfInAbMod :: Id -> Int-> AbMod Desugared -> Contextual (Maybe [TyArg Desugared])
+lkpItfInAbMod :: Identifier -> Int-> AbMod Desugared -> Contextual (Maybe [TyArg Desugared])
 lkpItfInAbMod itf n (AbFVar x _) = getContext >>= find'
   where find' BEmp = return Nothing
         find' (es :< FlexMVar y (AbDefn ab)) | x == y = lkpItf itf n ab
@@ -151,11 +151,11 @@ check p = runExcept $ evalFreshMT $ evalStateT (checkProg p) initTCState
                              return $ MkProg xs'
 
 checkTopTm :: TopTm Desugared -> Contextual (TopTm Desugared)
-checkTopTm (DefTm def a) = DefTm <$> checkMHDef def <*> pure a
+checkTopTm (DefTm def a) = DefTm <$> checkMultiHandlerDefinition def <*> pure a
 checkTopTm x = return x
 
-checkMHDef :: MHDef Desugared -> Contextual (MHDef Desugared)
-checkMHDef (Def id ty@(CType ps q _) cs a) = do
+checkMultiHandlerDefinition :: MultiHandlerDefinition Desugared -> Contextual (MultiHandlerDefinition Desugared)
+checkMultiHandlerDefinition (Def id ty@(CType ps q _) cs a) = do
   ty' <- validateCType ty
   cs' <- mapM (checkCls ty') cs
   return $ Def id ty' cs' a
@@ -312,18 +312,18 @@ checkSComp (SComp xs a) ty = do
              return cls'
 
 -- create port <i>X for fresh X
-freshPort :: Id -> Desugared -> Contextual (Port Desugared)
+freshPort :: Identifier -> Desugared -> Contextual (Port Desugared)
 freshPort x a = do ty <- FTVar <$> freshMVar x <*> pure a
                    return $ Port [] ty a
 
 -- create peg [E|]Y for fresh E, Y
-freshPeg :: Id -> Id -> Desugared -> Contextual (Peg Desugared)
+freshPeg :: Identifier -> Identifier -> Desugared -> Contextual (Peg Desugared)
 freshPeg x y a = do v <- AbFVar <$> freshMVar x <*> pure a
                     ty <- FTVar <$> freshMVar y <*> pure a
                     return $ Peg (Ab v (ItfMap M.empty a) a) ty a
 
 -- create peg [ab]X for given [ab], fresh X
-freshPegWithAb :: Ab Desugared -> Id -> Desugared -> Contextual (Peg Desugared)
+freshPegWithAb :: Ab Desugared -> Identifier -> Desugared -> Contextual (Peg Desugared)
 freshPegWithAb ab x a = do ty <- FTVar <$> freshMVar x <*> pure a
                            return $ Peg ab ty a
 
@@ -439,7 +439,7 @@ validateCType (CType ps q@(Peg ab ty a') a) = do
 --    -> return its occuring name
 -- 2) it is not part of current locality
 --    -> create fresh name in context and return
-makeFlexible :: [Id] -> VType Desugared -> Contextual (VType Desugared)
+makeFlexible :: [Identifier] -> VType Desugared -> Contextual (VType Desugared)
 makeFlexible skip (DTTy id ts a) = DTTy id <$> mapM (makeFlexibleTyArg skip) ts <*> pure a
 makeFlexible skip (SCTy cty a) = SCTy <$> makeFlexibleCType skip cty <*> pure a
 makeFlexible skip (RTVar x a) | x `notElem` skip = FTVar <$> (getContext >>= find') <*> pure a
@@ -451,7 +451,7 @@ makeFlexible skip (RTVar x a) | x `notElem` skip = FTVar <$> (getContext >>= fin
         find' (es :< _) = find' es
 makeFlexible skip ty = return ty
 
-makeFlexibleAb :: [Id] -> Ab Desugared -> Contextual (Ab Desugared)
+makeFlexibleAb :: [Identifier] -> Ab Desugared -> Contextual (Ab Desugared)
 makeFlexibleAb skip (Ab v (ItfMap m _) a) = case v of
   AbRVar x b -> do v' <- if x `notElem` skip then AbFVar <$> (getContext >>= find' x) <*> pure b else return $ AbRVar x b
                    m' <- mapM (mapM (mapM (makeFlexibleTyArg skip))) m
@@ -465,28 +465,28 @@ makeFlexibleAb skip (Ab v (ItfMap m _) a) = case v of
         find' x (es :< Mark) = freshMVar x
         find' x (es :< _) = find' x es
 
-makeFlexibleTyArg :: [Id] -> TyArg Desugared -> Contextual (TyArg Desugared)
+makeFlexibleTyArg :: [Identifier] -> TyArg Desugared -> Contextual (TyArg Desugared)
 makeFlexibleTyArg skip (VArg t a)  = VArg <$> makeFlexible skip t <*> pure a
 makeFlexibleTyArg skip (EArg ab a) = EArg <$> makeFlexibleAb skip ab <*> pure a
 
-makeFlexibleAdj :: [Id] -> Adjustment Desugared -> Contextual (Adjustment Desugared)
+makeFlexibleAdj :: [Identifier] -> Adjustment Desugared -> Contextual (Adjustment Desugared)
 makeFlexibleAdj skip (ConsAdj x ts a) = do ts' <- mapM (makeFlexibleTyArg skip) ts
                                            return $ ConsAdj x ts' a
 makeFlexibleAdj skip (AdaptorAdj adp a) = return $ AdaptorAdj adp a
 
-makeFlexibleCType :: [Id] -> CType Desugared -> Contextual (CType Desugared)
+makeFlexibleCType :: [Identifier] -> CType Desugared -> Contextual (CType Desugared)
 makeFlexibleCType skip (CType ps q a) = CType <$>
                                          mapM (makeFlexiblePort skip) ps <*>
                                          makeFlexiblePeg skip q <*>
                                          pure a
 
-makeFlexiblePeg :: [Id] -> Peg Desugared -> Contextual (Peg Desugared)
+makeFlexiblePeg :: [Identifier] -> Peg Desugared -> Contextual (Peg Desugared)
 makeFlexiblePeg skip (Peg ab ty a) = Peg <$>
                                       makeFlexibleAb skip ab <*>
                                       makeFlexible skip ty <*>
                                       pure a
 
-makeFlexiblePort :: [Id] -> Port Desugared -> Contextual (Port Desugared)
+makeFlexiblePort :: [Identifier] -> Port Desugared -> Contextual (Port Desugared)
 makeFlexiblePort skip (Port adjs ty a) = Port <$>
                                           (mapM (makeFlexibleAdj skip) adjs) <*>
                                           makeFlexible skip ty <*>
@@ -552,7 +552,7 @@ applyAllAdaptors adps ab = do
 
 -- helpers
 
-getCtr :: Id -> Contextual (Id,[TyArg Desugared],[VType Desugared])
+getCtr :: Identifier -> Contextual (Identifier, [TyArg Desugared], [VType Desugared])
 getCtr k = get >>= \s -> case M.lookup k (ctrMap s) of
   Nothing -> throwError $ errorTCNotACtr k
   Just (dt, ts, xs) -> return (dt, ts, xs)

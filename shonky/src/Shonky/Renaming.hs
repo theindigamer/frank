@@ -13,8 +13,8 @@ renToFun (m:_,  n) 0 = m
 renToFun (_:mr, n) k = renToFun (mr, n) (k-1)
 renToFun ([],   n) k = n + k
 
-renId :: Renaming
-renId = ([], 0)
+renIdentifier :: Renaming
+renIdentifier = ([], 0)
 
 renRem :: Int -> Renaming
 renRem n = ([0 .. (n-1)], n+1)
@@ -23,7 +23,7 @@ renCopy :: Int -> Renaming
 renCopy n = ([0 .. n], n)
 
 renSwap :: Int -> Int -> Renaming
-renSwap m n | m == n     = renId
+renSwap m n | m == n     = renIdentifier
 renSwap m n = let (x, y) = (min m n, max m n) in
   ([0 .. x-1] ++ [y] ++ [x+1 .. y-1] ++ [x], y+1)
 

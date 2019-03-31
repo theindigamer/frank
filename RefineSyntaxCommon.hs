@@ -15,15 +15,15 @@ import Syntax
 
 type Refine = ExceptT String (State RState)
 
-type TVarMap = M.Map Id (VType Raw)
-type EVarSet = S.Set Id
+type TVarMap = M.Map Identifier (VType Raw)
+type EVarSet = S.Set Identifier
 
 -- generic object-int pair
-type IPair = (Id,Int)
+type IPair = (Identifier, Int)
 -- data type id is mapped to rigid data type (RDT) variables (for polymorphic data types)
-type DTMap = M.Map Id [(Id, Kind)]                      -- dt-id     -> [ty-vars]
-type IFMap = M.Map Id [(Id, Kind)]                      -- itf-id    -> [ty-vars]
-type IFAliasesMap = M.Map Id ([(Id, Kind)], ItfMap Raw) -- itf-al-id -> ([ty-vars], itf's -> itf-instant's)
+type DTMap = M.Map Identifier [(Identifier, Kind)]                      -- dt-id     -> [ty-vars]
+type IFMap = M.Map Identifier [(Identifier, Kind)]                      -- itf-id    -> [ty-vars]
+type IFAliasesMap = M.Map Identifier ([(Identifier, Kind)], ItfMap Raw) -- itf-al-id -> ([ty-vars], itf's -> itf-instant's)
 
 data TopLevelCtxt = Interface | InterfaceAlias | Datatype | Handler
   deriving (Show, Eq)
@@ -124,13 +124,14 @@ isHdrCtxt (Just Handler) = True
 isHdrCtxt _              = False
 
 -- Check if ids are unique, if not throw error using the function "f"
-checkUniqueIds :: (HasId a, HasSource a) => [a] -> (Id -> Source -> String) ->
+checkUniqueIds :: (HasIdentifier a, HasSource a) => [a] -> (Identifier -> Source -> String) ->
                   Refine ()
 checkUniqueIds xs f =
   let (_, mErr) = foldl (\(ys, mErr) x -> if isNothing mErr
-                                          then if getId x `elem` ys
-                                               then ([], Just $ f (getId x) (getSource x))
-                                               else (getId x : ys, Nothing)
+                                          then let ident = getIdentifier x in
+                                                 if ident `elem` ys
+                                                 then ([], Just $ f ident (getSource x))
+                                                 else (ident : ys, Nothing)
                                           else ([], mErr))
                         ([], Nothing) xs
   in case mErr of Nothing -> return ()

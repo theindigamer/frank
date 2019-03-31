@@ -13,9 +13,9 @@ import Shonky.Renaming
 
 type Desugar = StateT DState (FreshMT Identity)
 
-type IdTVMap = M.Map Id (VType Desugared)
+type IdTVMap = M.Map Identifier (VType Desugared)
 
-type IdAbModMap = M.Map Id (AbMod Desugared)
+type IdAbModMap = M.Map Identifier (AbMod Desugared)
 
 data DState = MkDState { env :: IdTVMap
                        , abModEnv :: IdAbModMap }
@@ -26,17 +26,17 @@ getDState = get
 putDState :: DState -> Desugar ()
 putDState = put
 
-freshRTVar :: Id -> Desugared -> Desugar (VType Desugared)
+freshRTVar :: Identifier -> Desugared -> Desugar (VType Desugared)
 freshRTVar x a = do n <- fresh
                     return $ RTVar (x ++ "$r" ++ show n) a
 
-freshRigid :: Id -> Desugar Id
+freshRigid :: Identifier -> Desugar Identifier
 freshRigid x = do n <- fresh
                   return $ x ++ "$r" ++ show n
 
-pullId :: VType Desugared -> Id
-pullId (RTVar id _) = id
-pullId _ = error "pullId called on something other than a rigid tvar"
+pullIdentifier :: VType Desugared -> Identifier
+pullIdentifier (RTVar ident _) = ident
+pullIdentifier _ = error "pullIdentifier called on something other than a rigid tvar"
 
 putEnv :: IdTVMap -> Desugar ()
 putEnv p = do s <- getDState
@@ -69,7 +69,7 @@ desugar (MkProg xs) = MkProg $ evalFresh m
 desugarTopTm :: TopTm Refined -> Desugar (TopTm Desugared)
 desugarTopTm (DataTm dt a) = DataTm <$> desugarDataT dt <*> pure (refToDesug a)
 desugarTopTm (ItfTm itf a) = ItfTm <$> desugarItf itf <*> pure (refToDesug a)
-desugarTopTm (DefTm def a) = DefTm <$> desugarMHDef def <*> pure (refToDesug a)
+desugarTopTm (DefTm def a) = DefTm <$> desugarMultiHandlerDefinition def <*> pure (refToDesug a)
 
 -- explicit refinements:
 -- + type variables get fresh ids
@@ -112,8 +112,8 @@ desugarItf (Itf itf ps cmds a) = do
   where a' = refToDesug a
 
 -- no explicit refinements
-desugarMHDef :: MHDef Refined -> Desugar (MHDef Desugared)
-desugarMHDef (Def hdr ty xs a) = do
+desugarMultiHandlerDefinition :: MultiHandlerDefinition Refined -> Desugar (MultiHandlerDefinition Desugared)
+desugarMultiHandlerDefinition (Def hdr ty xs a) = do
   ty' <- desugarCType ty
   xs' <- mapM desugarClause xs
   return $ Def hdr ty' xs' (refToDesug a)
@@ -254,12 +254,12 @@ desugarUse (Adapted rs t a) = Adapted <$> (mapM desugarAdaptor rs)
 -- explicit refinements:
 -- + Rem, Copy and Swap gets desugared to GeneralAdaptor
 desugarAdaptor :: Adaptor Refined -> Desugar (Adaptor Desugared)
-desugarAdaptor (Adp x ns k a) = return $ Adp x ns k (refToDesug a)                                                     
+desugarAdaptor (Adp x ns k a) = return $ Adp x ns k (refToDesug a)
 
 desugarOperator :: Operator Refined -> Desugar (Operator Desugared)
 desugarOperator (Mono x a) = return $ Mono x (refToDesug a)
 desugarOperator (Poly x a) = return $ Poly x (refToDesug a)
-desugarOperator (CmdId x a) = return $ CmdId x (refToDesug a)
+desugarOperator (CmdIdentifier x a) = return $ CmdIdentifier x (refToDesug a)
 
 desugarDCon :: DataCon Refined -> Desugar (DataCon Desugared)
 desugarDCon (DataCon id xs a) =

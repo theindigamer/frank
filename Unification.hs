@@ -22,7 +22,7 @@ replace = return . Replace
 
 -- 1) Go through context until the first FlexMVar x:=d appears.
 -- 2) Run "f" on "x:=d", resulting in either "Restore" or "Replace-by-ext"
-onTop :: (Id -> Decl -> Contextual Extension) -> Contextual ()
+onTop :: (Identifier -> Decl -> Contextual Extension) -> Contextual ()
 onTop f = popEntry >>= focus
   where focus :: Entry -> Contextual ()
         focus e@(FlexMVar x d) =
@@ -109,7 +109,7 @@ unifyItfMap :: ItfMap Desugared -> ItfMap Desugared -> Contextual ()
 unifyItfMap m0@(ItfMap m0' a) m1@(ItfMap m1' b) = do
   mapM_ (unifyItfMap' m1) (M.toList m0')
   mapM_ (unifyItfMap' m0) (M.toList m1')
-  where unifyItfMap' :: ItfMap Desugared -> (Id, Bwd [TyArg Desugared]) -> Contextual ()
+  where unifyItfMap' :: ItfMap Desugared -> (Identifier, Bwd [TyArg Desugared]) -> Contextual ()
         unifyItfMap' (ItfMap m _) (x, insts) = case M.lookup x m of
           Nothing -> throwError $ errorUnifItfMaps m0 m1
           Just insts' -> if length insts /= length insts' then throwError $ errorUnifItfMaps m0 m1
@@ -136,7 +136,7 @@ unifyPort (Port adjs1 ty1 _) (Port adjs2 ty2 _) =
      else throwError $ "adaptors not the same"
 
 -- unify a meta variable "x" with a type "ty"
-solve :: Id -> Desugared -> Suffix -> VType Desugared -> Contextual ()
+solve :: Identifier -> Desugared -> Suffix -> VType Desugared -> Contextual ()
 solve x a ext ty = do logBeginSolve x ext ty
                       solve'
                       logEndSolve x ext ty
@@ -155,7 +155,7 @@ solve x a ext ty = do logBeginSolve x ext ty
       (False, True,  Hole) -> solve x a ((y, d):ext) ty >> replace []           -- inst-depend
       (False, False, Hole) -> solve x a ext ty >> restore                       -- inst-skip-ty
 
-solveForEVar :: Id -> Desugared -> Suffix -> Ab Desugared -> Contextual ()
+solveForEVar :: Identifier -> Desugared -> Suffix -> Ab Desugared -> Contextual ()
 solveForEVar x a ext ab = onTop $ \y d ->
   case (x == y, S.member y (fmvAb ab), d) of
     (_, _, AbDefn ab') ->
@@ -172,63 +172,63 @@ solveForEVar x a ext ab = onTop $ \y d ->
 
 {- Substitute "ty" for "x" in X -}
 
-subst :: VType Desugared -> Id -> VType Desugared -> VType Desugared
+subst :: VType Desugared -> Identifier -> VType Desugared -> VType Desugared
 subst ty x (DTTy dt ts a) = DTTy dt (map (substTyArg ty x) ts) a
 subst ty x (SCTy cty a) = SCTy (substCType ty x cty) a
 subst ty x (FTVar y a) | x == y = ty
 subst _ _ ty = ty
 
-substAb :: VType Desugared -> Id -> Ab Desugared -> Ab Desugared
+substAb :: VType Desugared -> Identifier -> Ab Desugared -> Ab Desugared
 substAb ty x (Ab v (ItfMap m a') a) = Ab v (ItfMap m' a') a
   where m' = fmap (fmap (map (substTyArg ty x))) m
 
-substTyArg :: VType Desugared -> Id -> TyArg Desugared -> TyArg Desugared
+substTyArg :: VType Desugared -> Identifier -> TyArg Desugared -> TyArg Desugared
 substTyArg ty x (VArg t a) = VArg (subst ty x t) a
 substTyArg ty x (EArg ab a) = EArg (substAb ty x ab) a
 
-substAdj :: VType Desugared -> Id -> Adjustment Desugared -> Adjustment Desugared
+substAdj :: VType Desugared -> Identifier -> Adjustment Desugared -> Adjustment Desugared
 substAdj ty x (ConsAdj y ts a) = ConsAdj y (map (substTyArg ty x) ts) a
 substAdj ty x (AdaptorAdj adp a) = AdaptorAdj adp a
 
-substCType :: VType Desugared -> Id -> CType Desugared -> CType Desugared
+substCType :: VType Desugared -> Identifier -> CType Desugared -> CType Desugared
 substCType ty x (CType ps peg a) =
   CType (map (substPort ty x) ps) (substPeg ty x peg) a
 
-substPeg :: VType Desugared -> Id -> Peg Desugared -> Peg Desugared
+substPeg :: VType Desugared -> Identifier -> Peg Desugared -> Peg Desugared
 substPeg ty x (Peg ab pty a) = Peg (substAb ty x ab) (subst ty x pty) a
 
-substPort :: VType Desugared -> Id -> Port Desugared -> Port Desugared
+substPort :: VType Desugared -> Identifier -> Port Desugared -> Port Desugared
 substPort ty x (Port adjs pty a) = Port (map (substAdj ty x) adjs) (subst ty x pty) a
 
-substEVar :: Ab Desugared -> Id -> VType Desugared -> VType Desugared
+substEVar :: Ab Desugared -> Identifier -> VType Desugared -> VType Desugared
 substEVar ab x (DTTy dt ts a) = DTTy dt (map (substEVarTyArg ab x) ts) a
 substEVar ab x (SCTy cty a) = SCTy (substEVarCType ab x cty) a
 substEVar _ _ ty = ty
 
 -- substitute "ab" for "x" in AB
-substEVarAb :: Ab Desugared -> Id -> Ab Desugared -> Ab Desugared
+substEVarAb :: Ab Desugared -> Identifier -> Ab Desugared -> Ab Desugared
 substEVarAb ab@(Ab v m' _) x (Ab (AbFVar y a) (ItfMap m ann') ann) | x == y =
   Ab v m'' ann
   where m'' = plusItfMap m' (ItfMap (fmap (fmap (map (substEVarTyArg ab x))) m) ann')
 substEVarAb ab x (Ab v (ItfMap m a') a) = Ab v (ItfMap (M.map (fmap (map (substEVarTyArg ab x))) m) a') a
 
-substEVarTyArg :: Ab Desugared -> Id -> TyArg Desugared -> TyArg Desugared
+substEVarTyArg :: Ab Desugared -> Identifier -> TyArg Desugared -> TyArg Desugared
 substEVarTyArg ab x (VArg t a)  = VArg (substEVar ab x t) a
 substEVarTyArg ab x (EArg ab' a) = EArg (substEVarAb ab x ab') a
 
-substEVarAdj :: Ab Desugared -> Id -> Adjustment Desugared -> Adjustment Desugared
+substEVarAdj :: Ab Desugared -> Identifier -> Adjustment Desugared -> Adjustment Desugared
 substEVarAdj ab x (ConsAdj y ts a) = ConsAdj y (map (substEVarTyArg ab x) ts) a
 substEvarAdj ab x (AdaptorAdj adp a) = AdaptorAdj adp a
 
-substEVarCType :: Ab Desugared -> Id -> CType Desugared -> CType Desugared
+substEVarCType :: Ab Desugared -> Identifier -> CType Desugared -> CType Desugared
 substEVarCType ab x (CType ps peg a) =
   CType (map (substEVarPort ab x) ps) (substEVarPeg ab x peg) a
 
-substEVarPeg :: Ab Desugared -> Id -> Peg Desugared -> Peg Desugared
+substEVarPeg :: Ab Desugared -> Identifier -> Peg Desugared -> Peg Desugared
 substEVarPeg ab' x (Peg ab pty a) =
   Peg (substEVarAb ab' x ab) (substEVar ab' x pty) a
 
-substEVarPort :: Ab Desugared -> Id -> Port Desugared -> Port Desugared
+substEVarPort :: Ab Desugared -> Identifier -> Port Desugared -> Port Desugared
 substEVarPort ab x (Port adjs pty a) =
   Port (map (substEVarAdj ab x) adjs) (substEVar ab x pty) a
 

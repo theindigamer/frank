@@ -51,11 +51,11 @@ refine' (MkProg xs) = do
   putTopLevelCtxt Handler
   hdrs <- mapM (refineMH hdrDefs) hdrSigs
   -- Check uniqueness of hdrs w.r.t builtin ones
-  -- checkUniqueIds ([h | (DefTm h _) <- hdrs] ++ builtinMHDefs)
+  -- checkUniqueIds ([h | (DefTm h _) <- hdrs] ++ builtinMultiHandlerDefinitions)
   --   (errorRefDuplTopTm "operator")
   return $ MkProg (map (\dt -> DataTm dt a) builtinDataTs ++ dtTms ++
                    map (\itf -> ItfTm itf a) builtinItfs ++ itfTms ++
-                   map (\hdr -> DefTm hdr a) builtinMHDefs ++ hdrs)
+                   map (\hdr -> DefTm hdr a) builtinMultiHandlerDefinitions ++ hdrs)
   where a = Refined BuiltIn
 
 -- Explicit refinements:
@@ -182,7 +182,7 @@ refineAb ab@(Ab v mp@(ItfMap m _) a) =
 -- If a itf_i is an already-introduced effect variable, require that there are
 --   no x_ij (else throw error)
 -- Output: all itf_i which refer to already-introduced effect variables
-getIntroducedEVars :: ItfMap Raw -> Refine [Id]
+getIntroducedEVars :: ItfMap Raw -> Refine [Identifier]
 getIntroducedEVars (ItfMap m _) = do
   p <- getEVSet
   let candidates = [(itf, (maximum . map length . bwd2fwd) xs) | (itf, xs) <- M.toList m, S.member itf p]
@@ -200,7 +200,7 @@ refineAdj (ConsAdj x ts a) = do
   let tss'' = M.foldlWithKey (\acc itf ts' -> acc ++ instsToAdjs itf ts') [] tss'
   --LAST STOP
   return $ tss''
-  where instsToAdjs :: Id -> Bwd [TyArg Refined] -> [Adjustment Refined]
+  where instsToAdjs :: Identifier -> Bwd [TyArg Refined] -> [Adjustment Refined]
         instsToAdjs itf ts = map (\ts' -> ConsAdj itf ts' (rawToRef a)) (bwd2fwd ts)
 refineAdj (AdaptorAdj adp a) = do
   adp' <- refineAdaptor adp
@@ -208,8 +208,8 @@ refineAdj (AdaptorAdj adp a) = do
 
 -- Explicit refinements:
 -- + interface aliases are substituted
-refineItfInst :: Raw -> (Id, [TyArg Raw]) ->
-                 Refine (M.Map Id (Bwd [TyArg Refined]))
+refineItfInst :: Raw -> (Identifier, [TyArg Raw]) ->
+                 Refine (M.Map Identifier (Bwd [TyArg Refined]))
 refineItfInst a (x, ts) = do
 --                  x t_11 ... t_1n
   -- replace interface aliases by interfaces
@@ -230,8 +230,8 @@ refineItfMap (ItfMap m a) = do
   m'' <- M.fromList <$> (mapM (refineItfInsts a)) (M.toList m')
   return $ ItfMap m'' (rawToRef a)
 
-refineItfInsts :: Raw -> (Id, Bwd [TyArg Raw]) ->
-                  Refine (Id, Bwd [TyArg Refined])
+refineItfInsts :: Raw -> (Identifier, Bwd [TyArg Raw]) ->
+                  Refine (Identifier, Bwd [TyArg Refined])
 refineItfInsts a (x, insts) = do
 --                  x t_11 ... t_1n, ..., x t_m1 t_mn
   itfs <- getRItfs
@@ -319,7 +319,7 @@ refineTyArg :: TyArg Raw -> Refine (TyArg Refined)
 refineTyArg (VArg t a) = VArg <$> refineVType t <*> pure (rawToRef a)
 refineTyArg (EArg ab a) = EArg <$> refineAb ab <*> pure (rawToRef a)
 
-refineMH :: [MHCls Raw] -> MHSig Raw -> Refine (TopTm Refined)
+refineMH :: [MHCls Raw] -> MultiHandlerSignature Raw -> Refine (TopTm Refined)
 refineMH xs (Sig id ty a) = do cs <- mapM refineMHCls ys
                                ty' <- refineCType ty
                                return $ DefTm (Def id ty' cs a') a'
@@ -331,14 +331,14 @@ refineMHCls (MHCls _ cls a) = refineClause cls
 
 -- Explicit refinements:
 -- + id "x" is refined to 1) DataCon:          0-ary constructor if matching
---                        2) Use . Op . CmdId: command operator if matching
+--                        2) Use . Op . CmdIdentifier: command operator if matching
 --                        3) Use . Op . Poly:  poly multihandler operator if it exists
 --                        4) Use . Op . Mono:  mono multihandler
 -- + applications (MkRawComb) are refined same way as ids
 -- + let x = e1 in e2    -->   case e1 {x -> e2}
 -- + [x, y, z]           -->   x cons (y cons (z cons nil))
 refineUse :: Use Raw -> Refine (Either (Use Refined) (Tm Refined))
-refineUse (RawId id a) =
+refineUse (RawIdentifier id a) =
   do ctrs <- getRCtrs
      cmds <- getRCmds
      hdrs <- getRMHs
@@ -347,7 +347,7 @@ refineUse (RawId id a) =
                      return $ Right $ DCon (DataCon id [] a') a'
         Nothing ->
           case id `findPair` cmds of
-            Just n -> return $ Left $ Op (CmdId id a') a'
+            Just n -> return $ Left $ Op (CmdIdentifier id a') a'
             -- TODO: LC: Do we need to check command's arity = 0?
             Nothing ->
               case id `findPair` hdrs of
@@ -357,7 +357,7 @@ refineUse (RawId id a) =
                 -- monotypic: must be local variable
                 Nothing -> return $ Left $ Op (Mono id a') a'
   where a' = rawToRef a
-refineUse (RawComb (RawId id b) xs a) =
+refineUse (RawComb (RawIdentifier id b) xs a) =
   do xs' <- mapM refineTm xs
      ctrs <- getRCtrs
      cmds <- getRCmds
@@ -368,7 +368,7 @@ refineUse (RawComb (RawId id b) xs a) =
         Nothing ->
           case id `findPair` cmds of
             Just n -> do checkArgs id n (length xs') a
-                         return $ Left $ App (Op (CmdId id b') b') xs' a'
+                         return $ Left $ App (Op (CmdIdentifier id b') b') xs' a'
             Nothing ->
               case id `findPair` hdrs of
                 Just n -> do checkArgs id n (length xs') a
@@ -491,7 +491,7 @@ refineVPat (ListPat ps a) =
          (DataPat "nil" [] (rawToRef a))
          ps'
 
-initialiseRState :: [DataT Raw] -> [Itf Raw] -> [ItfAlias Raw] -> [MHSig Raw] -> Refine ()
+initialiseRState :: [DataT Raw] -> [Itf Raw] -> [ItfAlias Raw] -> [MultiHandlerSignature Raw] -> Refine ()
 initialiseRState dts itfs itfAls hdrs =
   do i <- getRState
      itfs'   <- foldM addItf      (interfaces i)       itfs
@@ -507,12 +507,12 @@ initialiseRState dts itfs itfAls hdrs =
      putRCtrs       ctrs'
      putRMHs        hdrs'
 
-makeIntBinOp :: Refined -> Char -> MHDef Refined
+makeIntBinOp :: Refined -> Char -> MultiHandlerDefinition Refined
 makeIntBinOp a c = Def [c] (CType [Port [] (IntTy a) a
                                   ,Port [] (IntTy a) a]
                                   (Peg (Ab (AbVar "£" a) (ItfMap M.empty a) a) (IntTy a) a) a) [] a
 
-makeIntBinCmp :: Refined -> Char -> MHDef Refined
+makeIntBinCmp :: Refined -> Char -> MultiHandlerDefinition Refined
 makeIntBinCmp a c = Def [c] (CType [Port [] (IntTy a) a
                                    ,Port [] (IntTy a) a]
                              (Peg (Ab (AbVar "£" a) (ItfMap M.empty a) a)
@@ -547,26 +547,26 @@ builtinItfs = [Itf "Console" [] [Cmd "inch" [] [] (CharTy b) b
 builtinItfAliases :: [ItfAlias Raw]
 builtinItfAliases = []
 
-builtinMHDefs :: [MHDef Refined]
-builtinMHDefs = map (makeIntBinOp (Refined BuiltIn)) "+-" ++
+builtinMultiHandlerDefinitions :: [MultiHandlerDefinition Refined]
+builtinMultiHandlerDefinitions = map (makeIntBinOp (Refined BuiltIn)) "+-" ++
                 map (makeIntBinCmp (Refined BuiltIn)) "><" ++
                 [caseDef, charEq, alphaNumPred]
 
-charEq :: MHDef Refined
+charEq :: MultiHandlerDefinition Refined
 charEq = Def "eqc" (CType [Port [] (CharTy a) a
                           ,Port [] (CharTy a) a]
                           (Peg (Ab (AbVar "£" a) (ItfMap M.empty a) a)
                                (DTTy "Bool" [] a) a) a) [] a
   where a = Refined BuiltIn
 
-alphaNumPred :: MHDef Refined
+alphaNumPred :: MultiHandlerDefinition Refined
 alphaNumPred = Def "isAlphaNum"
                (CType [Port [] (CharTy a) a]
                           (Peg (Ab (AbVar "£" a) (ItfMap M.empty a) a)
                                (DTTy "Bool" [] a) a) a) [] a
   where a = Refined BuiltIn
 
-caseDef :: MHDef Refined
+caseDef :: MultiHandlerDefinition Refined
 caseDef = Def
           "case"
           (CType
@@ -581,7 +581,7 @@ caseDef = Def
   where b = Refined BuiltIn
 
 builtinMHs :: [IPair]
-builtinMHs = map add builtinMHDefs
+builtinMHs = map add builtinMultiHandlerDefinitions
   where add (Def x (CType ps _ a) _ _) = (x,length ps)
 
 builtinDTs :: DTMap
@@ -610,27 +610,27 @@ initRefine = MkRState builtinIFs builtinIFAliases builtinDTs builtinMHs builtinC
 
 {- Helper functions -}
 
-mem :: Id -> [IPair] -> Bool
+mem :: Identifier -> [IPair] -> Bool
 mem x xs = x `elem` map fst xs
 
-findPair :: Id -> [IPair] -> Maybe Int
+findPair :: Identifier -> [IPair] -> Maybe Int
 findPair x ((y,n) : xs) = if x == y then Just n else findPair x xs
 findPair _ _ = Nothing
 
-collectCmds :: [Cmd a] -> [Id]
+collectCmds :: [Cmd a] -> [Identifier]
 collectCmds (Cmd cmd _ _ _ a : xs) = cmd : collectCmds xs
 collectCmds [] = []
 
-collectCtrs :: [Ctr a] -> [Id]
+collectCtrs :: [Ctr a] -> [Identifier]
 collectCtrs (Ctr ctr _ a : xs) = ctr : collectCtrs xs
 collectCtrs [] = []
 
-collectMHNames :: [MHSig Raw] -> [Id]
+collectMHNames :: [MultiHandlerSignature Raw] -> [Identifier]
 collectMHNames (Sig hdr _ a : xs) = hdr : collectMHNames xs
 collectMHNames [] = []
 
 -- Add the id if not already present
-addEntry :: [IPair] -> Id -> Int -> String -> Refine [IPair]
+addEntry :: [IPair] -> Identifier -> Int -> String -> Refine [IPair]
 addEntry xs x n prefix = if x `mem` xs then throwError (errorRefEntryAlreadyDefined prefix x)
                          else return $ (x,n) : xs
 
@@ -653,16 +653,16 @@ addCmd :: [IPair] -> Cmd a -> Refine [IPair]
 addCmd xs (Cmd x _ ts _ a) = addEntry xs x (length ts) "duplicate command: "
 
 -- takes map handler-id -> #-of-ports and adds another handler entry
-addMH :: [IPair] -> MHSig Raw -> Refine [IPair]
+addMH :: [IPair] -> MultiHandlerSignature Raw -> Refine [IPair]
 addMH xs (Sig x (CType ps p _) _) =
   addEntry xs x (length ps) "duplicate operator:"
 
-uniqueIds :: [Id] -> Bool
+uniqueIds :: [Identifier] -> Bool
 uniqueIds xs = length xs == length (nub xs)
 
 -- Helpers
 
-checkArgs :: Id -> Int -> Int -> Raw -> Refine ()
+checkArgs :: Identifier -> Int -> Int -> Raw -> Refine ()
 checkArgs x exp act a =
   when (exp /= act) $
     throwError $ errorRefNumberOfArguments x exp act a

@@ -57,11 +57,11 @@ dataDef = attachLoc $ do reserved "data"
                          cs <- localIndentation Gt ctrList
                          return $ DT name ps cs
 
-tyVar :: MonadicParsing m => m (Id, Kind)
+tyVar :: MonadicParsing m => m (Identifier, Kind)
 tyVar = (\x -> (x, ET)) <$> brackets evar <|>
         (\x -> (x, VT)) <$> identifier
 
-evar :: MonadicParsing m => m Id
+evar :: MonadicParsing m => m Identifier
 evar = do mx <- optional identifier
           case mx of
             Nothing -> return "£"
@@ -73,7 +73,7 @@ ctrList = sepBy ctr (symbol "|")
 ctr :: MonadicParsing m => m (Ctr Raw)
 ctr = attachLoc $ Ctr <$> identifier <*> many vtype'
 
-handlerTopSig :: MonadicParsing m => m (MHSig Raw)
+handlerTopSig :: MonadicParsing m => m (MultiHandlerSignature Raw)
 handlerTopSig = attachLoc $ Sig <$> (try $ identifier <* symbol ":")        -- try: commit after colon
                                 <*> sigType
 
@@ -235,7 +235,7 @@ itfInstances = do
   insts <- sepBy itfInstance (symbol ",")
   return $ foldl addInstanceToItfMap (ItfMap M.empty a) insts
 
-itfInstance :: MonadicParsing m => m (Id, [TyArg Raw])
+itfInstance :: MonadicParsing m => m (Identifier, [TyArg Raw])
 itfInstance = do x <- identifier
                  ts <- many tyArg
                  return (x, ts)
@@ -369,19 +369,19 @@ letTm p p' = attachLoc $ do reserved "let"
 
 binOpLeft :: MonadicParsing m => m (Use Raw)
 binOpLeft = attachLoc $ do op <- choice $ map symbol ["+","-","*","/",">","<"]
-                           return $ RawId op
+                           return $ RawIdentifier op
 
 binOpRight :: MonadicParsing m => m (Use Raw)
 binOpRight = attachLoc $ do op <- choice $ map symbol ["::"]
                             let op' = if op == "::" then "cons" else op
-                            return $ RawId op'
+                            return $ RawIdentifier op'
 
 -- unary operation
 unOperation :: (MonadicParsing m) => m (Tm Raw)
 unOperation = provideLoc $ \a -> do
                 symbol "-"
                 t <- untm
-                return $ Use (RawComb (RawId "-" a) [IntTm 0 a, t] a) a
+                return $ Use (RawComb (RawIdentifier "-" a) [IntTm 0 a, t] a) a
 
 -- use
 use :: MonadicParsing m => m (Tm Raw) -> m (Use Raw)
@@ -443,7 +443,7 @@ adaptor' = (provideLoc $ \a -> do (x, liat, left, right) <- try $ do x <- identi
 
 idUse :: MonadicParsing m => m (Use Raw)
 idUse = attachLoc $ do x <- identifier
-                       return $ RawId x
+                       return $ RawIdentifier x
 
 listTm :: MonadicParsing m => m [Tm Raw]              -- [t_1, ..., t_n]
 listTm = brackets (sepBy tm (symbol ","))

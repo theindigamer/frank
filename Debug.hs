@@ -71,28 +71,28 @@ errorRefDuplParamItfAl itfAl@(ItfAlias x _ _ _) = "duplicate parameter in interf
 errorRefDuplParamCmd :: Cmd Raw -> String
 errorRefDuplParamCmd cmd@(Cmd x _ _ _ _) = "duplicate parameter in command " ++ x ++ " (" ++ (show $ ppSourceOf cmd) ++ ")"
 
-errorRefAbMultEffVars :: Ab Raw -> [Id] -> String
+errorRefAbMultEffVars :: Ab Raw -> [Identifier] -> String
 errorRefAbMultEffVars ab@(Ab v m a) es = "ability has multiple effect variables " ++ show es ++ " (" ++ (show $ ppSourceOf ab) ++ ")"
 
-errorRefEffVarNoParams :: Id -> String
+errorRefEffVarNoParams :: Identifier -> String
 errorRefEffVarNoParams x = "effect variable " ++ x ++ " may not take parameters"
 
-errorRefIdNotDeclared :: String -> Id -> Raw -> String
+errorRefIdNotDeclared :: String -> Identifier -> Raw -> String
 errorRefIdNotDeclared sort x a = "no " ++ sort ++ " named " ++ x ++ " declared (" ++ (show $ ppSourceOf a) ++ ")"
 
 errorRefExpectedUse :: Tm Refined -> String
 errorRefExpectedUse tm = "expected use but got term: " ++ show tm ++ "(" ++ (show $ ppSourceOf tm) ++ ")"
 
-errorRefEntryAlreadyDefined :: String -> Id -> String
+errorRefEntryAlreadyDefined :: String -> Identifier -> String
 errorRefEntryAlreadyDefined sort x = sort ++ " " ++ x ++ " already defined"
 
-errorRefDuplTopTm :: String -> Id -> Source -> String
+errorRefDuplTopTm :: String -> Identifier -> Source -> String
 errorRefDuplTopTm sort x a = "duplicate " ++ sort ++ ": " ++ x ++ " already defined (" ++ show a ++ ")"
 
-errorRefNumberOfArguments :: Id -> Int -> Int -> Raw -> String
+errorRefNumberOfArguments :: Identifier -> Int -> Int -> Raw -> String
 errorRefNumberOfArguments x exp act a = x ++ " expects " ++ show exp ++ " argument(s) but " ++ show act ++ " given (" ++ (show $ ppSourceOf a) ++ ")"
 
-errorRefItfAlCycle :: Id -> String
+errorRefItfAlCycle :: Identifier -> String
 errorRefItfAlCycle x = "interface alias " ++ show x ++ " is defined in terms of itself (cycle)"
 
 errorTCNotInScope :: Operator Desugared -> String
@@ -101,10 +101,10 @@ errorTCNotInScope op = "'" ++ getOpName op ++ "' not in scope (" ++ (show $ ppSo
 errorTCPatternPortMismatch :: Clause Desugared -> String
 errorTCPatternPortMismatch cls = "number of patterns not equal to number of ports (" ++ (show $ ppSourceOf cls) ++ ")"
 
-errorTCCmdNotFoundInPort :: Id -> Int -> Port Desugared -> String
+errorTCCmdNotFoundInPort :: Identifier -> Int -> Port Desugared -> String
 errorTCCmdNotFoundInPort cmd n port = "command " ++ cmd ++ "." ++ show n ++ " not found in adjustments of port " ++ (show $ ppPort port) ++ " (" ++ (show $ ppSourceOf port) ++ ")"
 
-errorTCNotACtr :: Id -> String
+errorTCNotACtr :: Identifier -> String
 errorTCNotACtr x = "'" ++ x ++ "' is not a constructor"
 
 errorUnifDiffNumberArgs :: VType Desugared -> VType Desugared -> String
@@ -145,12 +145,12 @@ errorFindCmdNotPermit cmd loc itf amb = "command " ++ cmd ++ " belonging to inte
 
 {- Logging (output if debug mode is on) -}
 
-logBeginFindCmd :: Id -> Id -> Maybe [TyArg Desugared] -> Contextual ()
+logBeginFindCmd :: Identifier -> Identifier -> Maybe [TyArg Desugared] -> Contextual ()
 logBeginFindCmd x itf mps = ifDebugTypeCheckOnThen $
   debugTypeCheckM $ "find command " ++ show x ++ " of interface " ++ show itf ++
                     " with instantiation " ++ show (mps >>= Just . (map (show . ppTyArg))) ++ "\n\n"
 
-logEndFindCmd :: Id -> VType Desugared -> Contextual ()
+logEndFindCmd :: Identifier -> VType Desugared -> Contextual ()
 logEndFindCmd x ty = ifDebugTypeCheckOnThen $
   debugTypeCheckM $ "ended find command " ++ show x ++ ", resulting type is: " ++
                     show (ppVType ty)
@@ -205,7 +205,7 @@ logEndUnifyAb ab0 ab1 = ifDebugTypeCheckOnThen $ do
   ctx <- getContext
   debugTypeCheckM $ "ended unifying ab. \n   " ++ show (ppAb ab0) ++ "\nwith\n   " ++ show (ppAb ab1) ++ "\nCurrent context:\n" ++ show (ppContext ctx) ++ "\n\n"
 
-logBeginSolve :: Id -> Suffix -> VType Desugared -> Contextual ()
+logBeginSolve :: Identifier -> Suffix -> VType Desugared -> Contextual ()
 logBeginSolve a ext ty = ifDebugTypeCheckOnThen $ do
   ctx <- getContext
   debugTypeCheckM $ "begin to solve " ++ show a ++ " = " ++ show (ppVType ty) ++ "\n under suffix\n   " ++ show (ppSuffix ext) ++ "\n\n"
@@ -223,17 +223,17 @@ logSolveStep p = ifDebugTypeCheckOnThen $ do
     (_,     _,     AbDefn _)   -> return ()
   debugTypeCheckM $ "current context:\n" ++ show (ppContext ctx) ++ "\n\n"
 
-logEndSolve :: Id -> Suffix -> VType Desugared -> Contextual ()
+logEndSolve :: Identifier -> Suffix -> VType Desugared -> Contextual ()
 logEndSolve a ext ty = ifDebugTypeCheckOnThen $ do
   ctx <- getContext
   debugTypeCheckM $ "ended solving " ++ show a ++ " = " ++ show (ppVType ty) ++ "\n under suffix\n   " ++ show (ppSuffix ext) ++ "\n\n"
 
--- logBeginSolveForEVar :: Id -> Suffix -> VType Desugared -> Contextual ()
+-- logBeginSolveForEVar :: Identifier -> Suffix -> VType Desugared -> Contextual ()
 -- logBeginSolve a ext ty = ifDebugTypeCheckOnThen $ do
 --   ctx <- getContext
 --   debugTypeCheckM $ "begin to solve " ++ show a ++ " = " ++ show (ppVType ty) ++ "\n under suffix\n   " ++ show (ppSuffix ext) ++ "\n\n"
 --
--- logEndSolveForEVar :: Id -> Suffix -> VType Desugared -> Contextual ()
+-- logEndSolveForEVar :: Identifier -> Suffix -> VType Desugared -> Contextual ()
 -- logEndSolve a ext ty = ifDebugTypeCheckOnThen $ do
 --   ctx <- getContext
 --   debugTypeCheckM $ "ended solving " ++ show a ++ " = " ++ show (ppVType ty) ++ "\n under suffix\n   " ++ show (ppSuffix ext) ++ "\n\n"
@@ -295,7 +295,7 @@ ppTopTm (DataTm dt _) = ppDataT dt
 ppTopTm (ItfTm itf _) = ppItf itf
 ppTopTm (SigTm sig _) = text $ show sig
 ppTopTm (ClsTm cls _) = text $ show cls
-ppTopTm (DefTm def _) = ppMHDef def
+ppTopTm (DefTm def _) = ppMultiHandlerDefinition def
 
 ppDataT :: (Show a, HasSource a) => DataT a -> PP.Doc
 ppDataT (DT id tyVars ctrs a) = text "data" <+>
@@ -311,12 +311,12 @@ ppItf (Itf id tyVars cmds a) = text "interface" <+>
                            text "=" <+>
                            sep (map (text . show) cmds)
 
-ppMHDef :: (Show a, HasSource a) => MHDef a -> PP.Doc
-ppMHDef (Def id cty cls _) = text id <+> text ":" <+>
+ppMultiHandlerDefinition :: (Show a, HasSource a) => MultiHandlerDefinition a -> PP.Doc
+ppMultiHandlerDefinition (Def id cty cls _) = text id <+> text ":" <+>
                              ppCType cty $$
                              sep (map (ppClause id) cls)
 
-ppClause :: (Show a, HasSource a) => Id -> Clause a -> PP.Doc
+ppClause :: (Show a, HasSource a) => Identifier -> Clause a -> PP.Doc
 ppClause id (Cls ps tm _) = text id <+>
                             (vcat . map ppPattern) ps <+> text "=" $$
                             (nest 3 . ppTm) tm
@@ -394,11 +394,11 @@ ppItfMap :: (Show a, HasSource a) => ItfMap a -> PP.Doc
 ppItfMap (ItfMap m _) =
   PP.hsep $ intersperse PP.comma $ map ppItfInstances $ M.toList m
 
-ppItfInstances :: (Show a, HasSource a) => (Id, Bwd [TyArg a]) -> PP.Doc
+ppItfInstances :: (Show a, HasSource a) => (Identifier, Bwd [TyArg a]) -> PP.Doc
 ppItfInstances (x, instants) =
         PP.hsep $ intersperse PP.comma $ map (\args -> foldl (<+>) (text x) $ map ppTyArg args) (bwd2fwd instants)
 
-ppItfInstance :: (Show a, HasSource a) => (Id, [TyArg a]) -> PP.Doc
+ppItfInstance :: (Show a, HasSource a) => (Identifier, [TyArg a]) -> PP.Doc
 ppItfInstance (x, ts) = text x <+> (PP.hsep $ map ppTyArg ts)
 
 ppSource :: Source -> PP.Doc
@@ -426,7 +426,7 @@ ppSComp :: (Show a, HasSource a) => SComp a -> PP.Doc
 ppSComp (SComp cls _) = text "{" <+> sep (map (ppClause "") cls) <+> text "}"
 
 ppUse :: (Show a, HasSource a) => Use a -> PP.Doc
-ppUse (RawId x _) = text x
+ppUse (RawIdentifier x _) = text x
 ppUse (RawComb u args _) = PP.lparen <> ppUse u <+> ppArgs args <> PP.rparen
 ppUse (Op op _) = ppOperator op
 ppUse (App u args _) = PP.lparen <> ppUse u <+> ppArgs args <> PP.rparen
@@ -441,7 +441,7 @@ ppArgs args = sep (map ppTm args)
 ppOperator :: (Show a, HasSource a) => Operator a -> PP.Doc
 ppOperator (Mono x _) = text x
 ppOperator (Poly x _) = text x
-ppOperator (CmdId x _) = text x
+ppOperator (CmdIdentifier x _) = text x
 
 ppDataCon :: (Show a, HasSource a) => DataCon a -> PP.Doc
 ppDataCon (DataCon x tms _) = text x <+> sep (map ppTm tms)
@@ -477,7 +477,7 @@ ppSuffix :: Suffix -> PP.Doc
 ppSuffix = ppFwd . (map (\(x, d) -> "(" ++ show x ++ "," ++
                                     show (ppDecl d) ++ ")"))
 
-ppItfs :: [Id] -> PP.Doc
+ppItfs :: [Identifier] -> PP.Doc
 ppItfs p = PP.hsep $ intersperse PP.comma $ map text p
 
 {- BWDFWD pretty printers -}
