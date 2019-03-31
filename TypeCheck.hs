@@ -71,7 +71,7 @@ find (CmdIdentifier x a) =
             return ty
 find x = getContext >>= find'
   where find' BEmp = throwError $ errorTCNotInScope x
-        find' (es :< TermVar y ty) | strip x == strip y = return ty
+        find' (es :< TermVar y ty) | stripAnn x == stripAnn y = return ty
         find' (es :< _) = find' es
 
 -- Find the first flexible type definition (as opposed to a hole) in ctx for x
@@ -92,7 +92,7 @@ inScope x ty m = do modify (:< TermVar x ty)
                     return a
   where dropVar :: Context -> Context
         dropVar BEmp = error "Invariant violation"
-        dropVar (es :< TermVar y _) | strip x == strip y = es
+        dropVar (es :< TermVar y _) | stripAnn x == stripAnn y = es
         dropVar (es :< e) = dropVar es :< e
 
 -- Run a contextual computation in a modified ambient environment

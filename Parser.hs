@@ -100,7 +100,7 @@ sigType = (do a <- getLoc
               rest <- optional (symbol "->" *> ctypeOldNoBrac)
               return $
                 case rest of
-                  Nothing -> modifyAnn a ct
+                  Nothing -> setAnn a ct
                   Just (CType ports peg a') ->
                         CType (Port [] (SCTy ct a') a' : ports) peg a) <|>
           -- TODO: LC: Integrate the new syntax properly...

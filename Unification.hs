@@ -74,7 +74,7 @@ unifyAb ab0@(Ab v0 m0 a) ab1@(Ab v1 m1 b) =
      logEndUnifyAb ab0 ab1
   where unifyAb' :: Ab Desugared -> Ab Desugared -> Contextual ()
         -- Same eff ty vars leaves nothing to unify but instantiat's m0, m1
-        unifyAb' ab0@(Ab v0 m1 _) ab1@(Ab v1 m2 _) | strip v0 == strip v1 =
+        unifyAb' ab0@(Ab v0 m1 _) ab1@(Ab v1 m2 _) | stripAnn v0 == stripAnn v1 =
           catchError (unifyItfMap m1 m2) (unifyAbError ab0 ab1)
         -- Both eff ty vars are flexible
         unifyAb' (Ab (AbFVar x a') m1 a) (Ab (AbFVar y b') m2 b) =
@@ -133,7 +133,7 @@ unifyPort (Port adjs1 ty1 _) (Port adjs2 ty2 _) =
                  (ItfMap insts2 (Desugared Generated))
      if adps1 == adps2 then
        unify ty1 ty2
-     else throwError $ "adaptors not the same"
+     else throwError "adaptors not the same"
 
 -- unify a meta variable "x" with a type "ty"
 solve :: Identifier -> Desugared -> Suffix -> VType Desugared -> Contextual ()
