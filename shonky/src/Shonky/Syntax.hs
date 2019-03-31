@@ -1,3 +1,6 @@
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE TupleSections #-}
+
 module Shonky.Syntax where
 
 import Control.Monad
@@ -81,11 +84,10 @@ pId = do c <- pLike pChar (\c -> isAlpha c || c == '_' || c == '%')
 
 pInt :: P Int
 pInt = do cs <- some (pLike pChar isDigit)
-          let x = concatMap (show . digitToInt) cs
-          return $ (read x :: Int)
+          pure . read $ concatMap (show . digitToInt) cs
 
 pP :: String -> P ()
-pP s = () <$ traverse (pLike pChar . (==)) s
+pP = mapM_ (pLike pChar . (==))
 
 pExp :: P Exp
 pExp = ((((\x -> ER (x, renRem 0)) <$ pGap <* pP "neg" <* pGap <* pP "<" <* pGap <*>
@@ -100,7 +102,7 @@ pExp = ((((\x -> ER (x, renRem 0)) <$ pGap <* pP "neg" <* pGap <* pP "<" <* pGap
        <|> id <$ pP "[" <*> pLisp pExp (EA "") (:&)
        <|> thunk <$ pP "{" <* pGap <*> pExp <* pGap <* pP "}"
        <|> EF <$ pP "{" <* pGap <*>
-          (id <$ pP "(" <*> (map (\x -> ([], x)) <$> pCSep (many (pId <* pGap)) ")")
+          (id <$ pP "(" <*> (map ([],) <$> pCSep (many (pId <* pGap)) ")")
               <* pGap <* pP ":" <* pGap
            <|> pure [])
           <*> pCSep pClause "" <* pGap <* pP "}"
@@ -147,12 +149,17 @@ pClause = (,) <$ pP "(" <*> pCSep pPat ")"
               <* pGap <* pP "->" <* pGap <*> pExp
 
 pRules :: String -> P (Def Exp)
-pRules f = DF f <$>
-  (id <$ pP "(" <*> (map (\x -> ([], x)) <$> pCSep (many (pId <* pGap)) ")") <* pGap
-     <* pP ":" <* pGap) <*>
-  pCSep (pP f *> pClause) ""
-  <|> DF f [] <$> ((:) <$> pClause <*>
-       many (id <$ pGap <* pP "," <* pGap <* pP f <*> pClause))
+pRules f =
+  ( DF f
+   <$> ( id <$ pP "("
+       <*> (map ([],) <$> pCSep (many (pId <* pGap)) ")")
+       <* pGap <* pP ":" <* pGap
+       )
+    <*> pCSep (pP f *> pClause) ""
+  ) <|>
+  ( DF f []
+    <$> ((:) <$> pClause <*> many (id <$ pGap <* pP "," <* pGap <* pP f <*> pClause))
+  )
 -- TODO: LC: Parse adjustments/renamings in ports
 
 pPat :: P Pat
@@ -173,13 +180,13 @@ pLike :: P x -> (x -> Bool) -> P x
 pLike p t = p >>= \ x -> if t x then return x else empty
 
 pChar :: P Char
-pChar = P $ \ s -> case s of
+pChar = P $ \case
   (c : s) -> Just (c, s)
   [] -> Nothing
 
 escape :: String -> String
 escape = (>>= help) where
-  help c | elem c "\\[|]`" = ['\\',c]
+  help c | c `elem` "\\[|]`" = ['\\',c]
   help c = [c]
 
 -- Parser Monad
@@ -200,7 +207,7 @@ instance Functor P where
   fmap = ap . return
 
 instance Alternative P where
-  empty = P $ \ _ -> Nothing
-  p <|> q = P $ \ s -> case parse p s of
+  empty = P $ const Nothing
+  p <|> q = P $ \s -> case parse p s of
     Nothing -> parse q s
     y -> y

@@ -29,10 +29,8 @@ renSwap m n = let (x, y) = (min m n, max m n) in
 
 renCompose :: Renaming -> Renaming -> Renaming
 renCompose r1@(ms1, n1) r2@(ms2, n2) =
-  ((map (renToFun r1) ms2) ++
-  (map (renToFun r1) [n2 .. length ms1 - 1]),
-   n1 - length ms1 + n2)
--- TODO: LC: double-check that this is right
+  (map (renToFun r1) (ms2 ++ [n2 .. length ms1 - 1]), n1 - length ms1 + n2)
+  -- TODO: LC: double-check that this is right
 
 renToNormalForm :: Renaming -> Renaming
 renToNormalForm (ms, n) = helper (reverse ms, n)

@@ -235,7 +235,7 @@ inferUse app@(App f xs a) =  -- App rule
         errTy ty = throwError $
                    "application (" ++ show (App f xs (Desugared Generated)) ++
                    "): expected suspended computation but got " ++
-                   (show $ ppVType ty)
+                   show (ppVType ty)
 
         -- Check typing tm: ty in ambient [adj]
         checkArg :: Port Desugared -> Term Desugared -> Contextual (Term Desugared)
@@ -257,7 +257,7 @@ inferUse adpd@(Adapted adps t a) =
 -- 2nd major TC function besides "check": Check that term (construction) has
 -- given type
 checkTerm :: Term Desugared -> VType Desugared -> Contextual (Term Desugared)
-checkTerm (SC sc a) ty = SC <$> (checkSComp sc ty) <*> (pure a)
+checkTerm (SC sc a) ty = SC <$> checkSComp sc ty <*> pure a
 checkTerm tm@(StrTerm _ a) ty = unify (desugaredStrTy a) ty >> return tm
 checkTerm tm@(IntTerm _ a) ty = unify (IntTy a) ty >> return tm
 checkTerm tm@(CharTerm _ a) ty = unify (CharTy a) ty >> return tm
@@ -272,16 +272,15 @@ checkTerm (Use u a) t = do (u', s) <- inferUse u
                            return $ Use u' a
 checkTerm (DCon (DataCon k xs a') a) ty =
   do (dt, args, ts) <- getCtr k
---    data dt arg_1 ... arg_m = k t_1 ... t_n | ...
+     -- data dt arg_1 ... arg_m = k t_1 ... t_n | ...
      addMark
      -- prepare flexible ty vars and ty args
      args' <- mapM (makeFlexibleTyArg []) args
      ts' <- mapM (makeFlexible []) ts
      -- unify with expected type
      unify ty (DTTy dt args' a)
-     xs' <- mapM (uncurry checkTerm) (zip xs ts')
+     xs' <- zipWithM checkTerm xs ts'
      return $ DCon (DataCon k xs' a') a
-
 
 -- Check that susp. comp. term has given type, corresponds to Comp rule
 -- Case distinction on expected type:
@@ -298,18 +297,18 @@ checkSComp (SComp xs a) (SCTy ty@(CType ps q _) _) = do
 checkSComp (SComp xs a) ty = do
   xs' <- mapM (checkCls' ty) xs
   return (SComp xs' a)
-  where checkCls' :: VType Desugared -> Clause Desugared ->
-                     Contextual (Clause Desugared)
-        checkCls' ty cls@(Cls pats tm a) =
-          do pushMarkCtx
-             ps <- mapM (\_ -> freshPort "X" a) pats
-             q <- freshPeg "E" "X" a
-             -- {p_1 -> ... -> p_n -> q} for fresh flex. var.s ps, q
-             let cty = (CType ps q a)
-             cls' <- checkCls cty cls     -- assign these variables
-             unify ty (SCTy cty a)        -- unify with resulting ty
-             purgeMarks
-             return cls'
+  where
+    checkCls' :: VType Desugared -> Clause Desugared -> Contextual (Clause Desugared)
+    checkCls' ty cls@(Cls pats tm a) = do
+      pushMarkCtx
+      ps <- mapM (\_ -> freshPort "X" a) pats
+      q <- freshPeg "E" "X" a
+      -- {p_1 -> ... -> p_n -> q} for fresh flex. var.s ps, q
+      let cty = CType ps q a
+      cls' <- checkCls cty cls     -- assign these variables
+      unify ty (SCTy cty a)        -- unify with resulting ty
+      purgeMarks
+      return cls'
 
 -- create port <i>X for fresh X
 freshPort :: Identifier -> Desugared -> Contextual (Port Desugared)
@@ -376,7 +375,7 @@ checkPat (CmdPat cmd n xs g a) port@(Port adjs ty b) =                          
           y' <- makeFlexible skip y
           zipWithM_ unifyTyArg ps qs'
           -- Check command patterns against spec. in interface def.
-          bs <- concat <$> mapM (uncurry checkVPat) (zip xs ts')
+          bs <- concat <$> zipWithM checkVPat xs ts'
           -- type of continuation:  {y' -> [adj + currentAmb]ty}
           kty <- contType y' adjs ty a
           -- bindings: continuation + patterns
@@ -487,25 +486,27 @@ makeFlexiblePeg skip (Peg ab ty a) = Peg <$>
                                       pure a
 
 makeFlexiblePort :: [Identifier] -> Port Desugared -> Contextual (Port Desugared)
-makeFlexiblePort skip (Port adjs ty a) = Port <$>
-                                          (mapM (makeFlexibleAdj skip) adjs) <*>
-                                          makeFlexible skip ty <*>
-                                          pure a
+makeFlexiblePort skip (Port adjs ty a) =
+  Port <$> mapM (makeFlexibleAdj skip) adjs
+       <*> makeFlexible skip ty
+       <*> pure a
 
 applyAllAdjustments :: [Adjustment Desugared] -> Ab Desugared ->
                        Contextual ([Adjustment Desugared], Ab Desugared)
 applyAllAdjustments [] ab = return ([], ab)
-applyAllAdjustments (adj@(ConsAdj x ts _) : adjr) (Ab v p@(ItfMap m a') a) =
-  do let ab' = (Ab v (ItfMap (adjustWithDefault (:< ts) x BEmp m) a') a)
-     (adjr', ab'') <- applyAllAdjustments adjr ab'
-     return (adj : adjr', ab'')
-applyAllAdjustments ((AdaptorAdj adp a) : adjr) ab =
-  do let mAdpAb = applyAdaptor adp ab
-     case mAdpAb of
-       Just (adp', ab') ->
-         do (adjr'', ab'') <- applyAllAdjustments adjr ab'
-            return (AdaptorAdj adp' a : adjr'', ab'')
-       Nothing -> throwError $ errorAdaptor adp ab
+
+applyAllAdjustments (adj@(ConsAdj x ts _) : adjr) (Ab v p@(ItfMap m a') a) = do
+  let ab' = Ab v (ItfMap (adjustWithDefault (:< ts) x BEmp m) a') a
+  (adjr', ab'') <- applyAllAdjustments adjr ab'
+  return (adj : adjr', ab'')
+
+applyAllAdjustments (AdaptorAdj adp a : adjr) ab = do
+  let mAdpAb = applyAdaptor adp ab
+  case mAdpAb of
+   Just (adp', ab') -> do
+     (adjr'', ab'') <- applyAllAdjustments adjr ab'
+     return (AdaptorAdj adp' a : adjr'', ab'')
+   Nothing -> throwError $ errorAdaptor adp ab
 
 applyAdaptor :: Adaptor Desugared -> Ab Desugared -> Maybe (Adaptor Desugared, Ab Desugared)
 applyAdaptor adp ab@(Ab v p@(ItfMap m a') a) =
@@ -548,7 +549,7 @@ applyAllAdaptors adps ab = do
   where unwrap :: Adjustment Desugared -> Adaptor Desugared
         unwrap (AdaptorAdj adp _) = adp
         unwrap (ConsAdj _ _ _)    = error "invariant broken"
-
+{-# ANN applyAllAdaptors "HLint: ignore Use record patterns" #-}
 
 -- helpers
 

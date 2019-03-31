@@ -45,7 +45,7 @@ substitItfAls = substitItfAls' [] where
              m' <- mapM (mapM (mapM (substitInTyArg subst))) m
              -- recursively replace itf als in   x_1, ..., x_n
              --                       yielding   [[x_11 x_11_ts, ...], ...]
-             ms <- mapM (\(x', insts) -> (mapM (\inst -> substitItfAls' (x:visited) (x', inst)) insts)) (M.toList m')
+             ms <- mapM (\(x', insts) -> mapM (\inst -> substitItfAls' (x:visited) (x', inst)) insts) (M.toList m')
              let ms' = map (foldl plusItfMap (emptyItfMap (Raw Generated))) ms
              let m'' = foldl plusItfMap (emptyItfMap (Raw Generated)) ms'
              return m''
@@ -76,10 +76,10 @@ substitInVType subst (DTTy x ts a) = do
   dtm <- getRDTs
   tmap <- getTMap
   ctx <- getTopLevelCtxt
-  case (not (M.member x dtm) && -- Check if id really is type variable
-        null ts &&
-        (isHeaderContext ctx ||
-         M.member x tmap), substLookupVT subst x) of -- if so, then substitute
+  let isTypeVar = not (M.member x dtm)
+  case ( isTypeVar && null ts && (isHeaderContext ctx || M.member x tmap)
+       , substLookupVT subst x
+       ) of -- if so, then substitute
     (True, Just y) -> return y     -- TODO: LC: Right annotation assigned?
     _              -> do ts' <- mapM (substitInTyArg subst) ts
                          return $ DTTy x ts' a

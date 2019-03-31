@@ -1,3 +1,5 @@
+{-# LANGUAGE TupleSections #-}
+
 -- Making implicit [£] explicit in data type, interface and interface alias
 -- definitions
 module RefineSyntaxConcretiseEps (concretiseEps, concretiseEpsArg) where
@@ -94,7 +96,7 @@ concretiseEps dts itfs itfAls =
       HasEps          -> do put (xs, x:pos, neg) -- (3)
                             return True
       HasEpsIfAny nodes ->
-        let neighbours = (nub nodes) `intersect` (xs ++ pos ++ neg) in
+        let neighbours = nub nodes `intersect` (xs ++ pos ++ neg) in
         do dec <- foldl (\dec y -> do -- Exclude neighbour from graph
                                       (xs', pos', neg') <- get
                                       put (xs' \\ [y], pos', neg')
@@ -165,7 +167,7 @@ concretiseEps dts itfs itfAls =
     -- implicit eps, it should be given as an additional parameter here, too
     case resolveDataId x of
       Just x' -> let
-        dtHE   = if isDtWithNArgs x' (length ts) then [HasEpsIfAny [x']] else []
+        dtHE   = [HasEpsIfAny [x'] | isDtWithNArgs x' (length ts)]
         argsHE = map (hasEpsTyArg tvs) ts
         in anyHasEps (dtHE ++ argsHE)
       Nothing -> hasNoEps
@@ -198,7 +200,7 @@ concretiseEps dts itfs itfAls =
         argsHE = (map (hasEpsTyArg tvs) . concat . concatMap bwd2fwd . M.elems) m
     in anyHasEps (itfsHE ++ argsHE)
     where flattenItfMap :: ItfMap t -> [(Identifier, [TyArg t])]
-          flattenItfMap (ItfMap m _) = concat $ map (\(i, insts) -> map (\inst -> (i, inst)) (bwd2fwd insts)) (M.toList m)
+          flattenItfMap (ItfMap m _) = concatMap (\(i, insts) -> map (i,) (bwd2fwd insts)) (M.toList m)
 
           hasEpsInst :: (Identifier, [TyArg Raw]) -> HasEps
           hasEpsInst (i, inst) = case resolveItfId i of

@@ -108,16 +108,14 @@ entrify :: Suffix -> [Entry]
 entrify = map $ uncurry FlexMVar
 
 getContext :: Contextual Context
-getContext = do s <- get
-                return (ctx s)
+getContext = gets ctx
 
 putContext :: Context -> Contextual ()
 putContext x = do s <- get
                   put $ s { ctx = x }
 
 getAmbient :: Contextual (Ab Desugared)
-getAmbient = do s <- get
-                return (amb s)
+getAmbient = gets amb
 
 putAmbient :: Ab Desugared -> Contextual ()
 putAmbient ab = do s <- get

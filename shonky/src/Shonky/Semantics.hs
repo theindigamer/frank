@@ -14,8 +14,9 @@ import qualified Data.Map.Strict as M
 import Shonky.Syntax
 import Shonky.Renaming
 
-import Debug.Trace
 import Debug
+
+{-# ANN module "HLint: ignore Use String" #-}
 
 -- There is no predefined Show instance
 instance Show (IORef a) where
@@ -139,10 +140,10 @@ ppFrame (Arg hs f cs g hss es) = text "Arg" <+> nest 3 (vcat [text "hs =" <+> (t
 ppFrame (Seq g e)              = text "Seq" <+> ppEnv g <+> ppExp e
 ppFrame (Qes g e)              = text "Qes" <+> ppEnv g <+> ppExp e
 ppFrame (Qed v)                = text "Qed" <+> ppVal v
-ppFrame (Adp (cs, r))          = text "Adp" <+> text "[" <+> (hcat $ punctuate comma (map text cs)) <+> text "]" <+> (text . show) r
+ppFrame (Adp (cs, r))          = text "Adp" <+> text "[" <+> hcat (punctuate comma (map text cs)) <+> text "]" <+> (text . show) r
 
 ppEnv :: Env -> Doc
-ppEnv g = bracketed empty (map ((bracketed (text "\n")) . (map ppDefVal)) (envToList g))
+ppEnv g = bracketed empty (map (bracketed (text "\n") . map ppDefVal) (envToList g))
 
 ppDefVal :: Def Val -> Doc
 ppDefVal (x := v)      = text x <+> text "->" <+> ppVal v
@@ -161,14 +162,14 @@ bracketed s ds = lbrack <+> (sepBy s ds <+> rbrack)
 
 -- Given env and 2 operands (that are values), compute result
 plus :: Env -> [Comp] -> Val
-plus g [a1,a2] = VI (f a1 + f a2)
+plus g [a1, a2] = VI (f a1 + f a2)
   where f x = case x of
           Ret (VI n) -> n
           _ -> error "plus: argument not an int"
 plus g _ = error "plus: incorrect number of arguments, expected 2."
 
 minus :: Env -> [Comp] -> Val
-minus g [a1,a2] = VI (f a1 - f a2)
+minus g [a1, a2] = VI (f a1 - f a2)
   where f x = case x of
           Ret (VI n) -> n
           _ -> error "minus: argument not an int"
@@ -178,14 +179,14 @@ builtinPred :: Bool -> Val
 builtinPred b = (if b then VA "true" else VA "false") :&& VA ""
 
 lt :: Env -> [Comp] -> Val
-lt g [a1,a2] = builtinPred ((f a1) < (f a2))
+lt g [a1, a2] = builtinPred (f a1 < f a2)
   where f x = case x of
           Ret (VI n) -> n
           _ -> error "plus: argument not an int"
 lt g _ = error "plus: incorrect number of arguments, expected 2."
 
 gt :: Env -> [Comp] -> Val
-gt g [a1,a2] = builtinPred ((f a1) > (f a2))
+gt g [a1, a2] = builtinPred (f a1 > f a2)
   where f x = case x of
           Ret (VI n) -> n
           _ -> error "plus: argument not an int"
@@ -193,7 +194,7 @@ gt g _ = error "plus: incorrect number of arguments, expected 2."
 
 
 eqc :: Env -> [Comp] -> Val
-eqc g [a1,a2] = builtinPred ((f a1) == (f a2))
+eqc g [a1, a2] = builtinPred (f a1 == f a2)
   where f x = case x of
           Ret (VX [c]) -> c
           _ -> error "eqc: argument not a character"
@@ -253,19 +254,19 @@ compute g (ER (cs, r) e) ls = compute g e (Adp (cs, r) : ls)                -- 2
 -- Take val `v` and top-frame from stack, apply it to `v` in
 consume :: Val -> Agenda -> Comp
 consume v (Car g d    : ls) = compute g d (Cdr v : ls)                      -- Given: eval. head `v`,     non-eval. tail `d`.  Record `v` and compute tail `d`.
-consume v (Cdr u      : ls) = consume (simplStr u v) (ls)                   -- Given: eval. head `u`,     eval.     tail `v`.  Put together.
-consume v (Fun g as   : ls) = args v [] g (adapsAndHandles v) as (ls)       -- Given: eval. function `v`, non-eval. args `as`. Compute `as`, then feed them into `v`
+consume v (Cdr u      : ls) = consume (simplStr u v) ls                     -- Given: eval. head `u`,     eval.     tail `v`.  Put together.
+consume v (Fun g as   : ls) = args v [] g (adapsAndHandles v) as ls         -- Given: eval. function `v`, non-eval. args `as`. Compute `as`, then feed them into `v`
 consume v (Arg _ f cs g
-               hss es : ls) = args f (Ret v : cs) g hss es (ls)             -- Given: Eval.:     handler `f`,
+               hss es : ls) = args f (Ret v : cs) g hss es ls               -- Given: Eval.:     handler `f`,
                                                                                       --                   first args `cs` (reversed),
                                                                                       --                   current arg `v`
                                                                                       --        Non-eval.: last args `es`
                                                                                       -- Add `v` to `cs` and re-call `args`
-consume _ (Seq g e           : ls) = compute g e (ls)                       -- Sequence.    Given: eval. 1st _,   non-eval. 2nd `e`. Compute `e`.
+consume _ (Seq g e           : ls) = compute g e ls                         -- Sequence.    Given: eval. 1st _,   non-eval. 2nd `e`. Compute `e`.
 consume v (Qes g e           : ls) = compute g e (Qed v : ls)               -- Composition. Given: eval. 1st `v`, non-eval. 2nd `e`. Record `v` and compute `e`.
-consume _ (Qed v             : ls) = consume v (ls)                         -- LC: Bug here? Why discard argument? (but not used by Frank so far anyway)
-consume v (Def g dvs x des e : ls) = define g ((x := v) : dvs) des e (ls)   -- (not used by Frank)
-consume v (Txt g cs ces      : ls) = combine g (revapp (txt v) cs) ces (ls) -- (not used by Frank)
+consume _ (Qed v             : ls) = consume v ls                           -- LC: Bug here? Why discard argument? (but not used by Frank so far anyway)
+consume v (Def g dvs x des e : ls) = define g ((x := v) : dvs) des e ls     -- (not used by Frank)
+consume v (Txt g cs ces      : ls) = combine g (revapp (txt v) cs) ces ls   -- (not used by Frank)
 consume v (Adp (cs, r)       : ls) = consume v ls                           -- ignore addaptor when value is obtained
 consume v []                       = Ret v
 
@@ -295,9 +296,9 @@ ioHandler (Call "write" 0 [VR ref, v] ks) =
 ioHandler (Call "read" 0 [VR ref] ks) =
   do v <- readIORef ref
      ioHandler (consume v (reverse ks))
-ioHandler (Call c n vs ks) = error $ "Unhandled command: " ++ c ++ "." ++
-                                     show n ++ concat (map (\v -> " " ++
-                                    (show . ppVal) v) vs)
+ioHandler (Call c n vs ks) = error $
+  "Unhandled command: " ++ c ++ "." ++
+  show n ++ concatMap (\v -> " " ++ (show . ppVal) v) vs
 
 -- A helper to simplify strings (list of characters)
 -- this allows regular list append [x|xs] to function like [|`x``xs`|] but
@@ -498,8 +499,8 @@ loadFile :: String -> IO Env
 loadFile x = do
   s <- readFile (x ++ ".uf")
   let Just (d, rest) = parse pProg s
-  traceM $ "parsed:\n\n" ++ (show $ vsep (map ppDef d)) ++ "\n\n"
-  traceM $ "rest: \n\n" ++ (show rest)
+  traceM $ "parsed:\n\n" ++ show (vsep (map ppDef d)) ++ "\n\n"
+  traceM $ "rest: \n\n" ++ show rest
   return (prog envBuiltins d)
 
 -- Given env `g` and id `s`,

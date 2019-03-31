@@ -54,7 +54,7 @@ isDebugTypeCheckOn :: () -> Bool
 isDebugTypeCheckOn () = case getDebugMode () of (_, _, b) -> b
 
 ifDebugTypeCheckOnThen :: Contextual () -> Contextual ()
-ifDebugTypeCheckOnThen f = when (isDebugTypeCheckOn ()) f
+ifDebugTypeCheckOnThen = when (isDebugTypeCheckOn ())
 
 {- Error messages (only producing the output strings) -}
 
@@ -62,28 +62,28 @@ errorRefNoMainFunction :: String
 errorRefNoMainFunction = "no main function defined"
 
 errorRefDuplParamData :: DataT Raw -> String
-errorRefDuplParamData dt@(DT x _ _ _) = "duplicate parameter in datatype " ++ x ++ " (" ++ (show $ ppSourceOf dt) ++ ")"
+errorRefDuplParamData dt@(DT x _ _ _) = "duplicate parameter in datatype " ++ x ++ " (" ++ show (ppSourceOf dt) ++ ")"
 
 errorRefDuplParamItf :: Itf Raw -> String
-errorRefDuplParamItf itf@(Itf x _ _ _) = "duplicate parameter in interface " ++ x ++ " (" ++ (show $ ppSourceOf itf) ++ ")"
+errorRefDuplParamItf itf@(Itf x _ _ _) = "duplicate parameter in interface " ++ x ++ " (" ++ show (ppSourceOf itf) ++ ")"
 
 errorRefDuplParamItfAl :: ItfAlias Raw -> String
-errorRefDuplParamItfAl itfAl@(ItfAlias x _ _ _) = "duplicate parameter in interface alias " ++ x ++ " (" ++ (show $ ppSourceOf itfAl) ++ ")"
+errorRefDuplParamItfAl itfAl@(ItfAlias x _ _ _) = "duplicate parameter in interface alias " ++ x ++ " (" ++ show (ppSourceOf itfAl) ++ ")"
 
 errorRefDuplParamCmd :: Cmd Raw -> String
-errorRefDuplParamCmd cmd@(Cmd x _ _ _ _) = "duplicate parameter in command " ++ x ++ " (" ++ (show $ ppSourceOf cmd) ++ ")"
+errorRefDuplParamCmd cmd@(Cmd x _ _ _ _) = "duplicate parameter in command " ++ x ++ " (" ++ show (ppSourceOf cmd) ++ ")"
 
 errorRefAbMultEffVars :: Ab Raw -> [Identifier] -> String
-errorRefAbMultEffVars ab@(Ab v m a) es = "ability has multiple effect variables " ++ show es ++ " (" ++ (show $ ppSourceOf ab) ++ ")"
+errorRefAbMultEffVars ab@(Ab v m a) es = "ability has multiple effect variables " ++ show es ++ " (" ++ show (ppSourceOf ab) ++ ")"
 
 errorRefEffVarNoParams :: Identifier -> String
 errorRefEffVarNoParams x = "effect variable " ++ x ++ " may not take parameters"
 
 errorRefIdNotDeclared :: String -> Identifier -> Raw -> String
-errorRefIdNotDeclared sort x a = "no " ++ sort ++ " named " ++ x ++ " declared (" ++ (show $ ppSourceOf a) ++ ")"
+errorRefIdNotDeclared sort x a = "no " ++ sort ++ " named " ++ x ++ " declared (" ++ show (ppSourceOf a) ++ ")"
 
 errorRefExpectedUse :: Term Refined -> String
-errorRefExpectedUse tm = "expected use but got term: " ++ show tm ++ "(" ++ (show $ ppSourceOf tm) ++ ")"
+errorRefExpectedUse tm = "expected use but got term: " ++ show tm ++ "(" ++ show (ppSourceOf tm) ++ ")"
 
 errorRefEntryAlreadyDefined :: String -> Identifier -> String
 errorRefEntryAlreadyDefined sort x = sort ++ " " ++ x ++ " already defined"
@@ -92,65 +92,65 @@ errorRefDuplTopTerm :: String -> Identifier -> Source -> String
 errorRefDuplTopTerm sort x a = "duplicate " ++ sort ++ ": " ++ x ++ " already defined (" ++ show a ++ ")"
 
 errorRefNumberOfArguments :: Identifier -> Int -> Int -> Raw -> String
-errorRefNumberOfArguments x exp act a = x ++ " expects " ++ show exp ++ " argument(s) but " ++ show act ++ " given (" ++ (show $ ppSourceOf a) ++ ")"
+errorRefNumberOfArguments x exp act a = x ++ " expects " ++ show exp ++ " argument(s) but " ++ show act ++ " given (" ++ show (ppSourceOf a) ++ ")"
 
 errorRefItfAlCycle :: Identifier -> String
 errorRefItfAlCycle x = "interface alias " ++ show x ++ " is defined in terms of itself (cycle)"
 
 errorTCNotInScope :: Operator Desugared -> String
-errorTCNotInScope op = "'" ++ getOpName op ++ "' not in scope (" ++ (show $ ppSourceOf op) ++ ")"
+errorTCNotInScope op = "'" ++ getOpName op ++ "' not in scope (" ++ show (ppSourceOf op) ++ ")"
 
 errorTCPatternPortMismatch :: Clause Desugared -> String
-errorTCPatternPortMismatch cls = "number of patterns not equal to number of ports (" ++ (show $ ppSourceOf cls) ++ ")"
+errorTCPatternPortMismatch cls = "number of patterns not equal to number of ports (" ++ show (ppSourceOf cls) ++ ")"
 
 errorTCCmdNotFoundInPort :: Identifier -> Int -> Port Desugared -> String
-errorTCCmdNotFoundInPort cmd n port = "command " ++ cmd ++ "." ++ show n ++ " not found in adjustments of port " ++ (show $ ppPort port) ++ " (" ++ (show $ ppSourceOf port) ++ ")"
+errorTCCmdNotFoundInPort cmd n port = "command " ++ cmd ++ "." ++ show n ++ " not found in adjustments of port " ++ show (ppPort port) ++ " (" ++ show (ppSourceOf port) ++ ")"
 
 errorTCNotACtr :: Identifier -> String
 errorTCNotACtr x = "'" ++ x ++ "' is not a constructor"
 
 errorUnifDiffNumberArgs :: VType Desugared -> VType Desugared -> String
 errorUnifDiffNumberArgs v1 v2 =
-  "failed to unify " ++ (show $ ppVType v1) ++ " (" ++ (show $ ppSourceOf v1) ++ ") with " ++ (show $ ppVType v2) ++ " (" ++ (show $ ppSourceOf v2) ++ ")" ++ " because they have different numbers of type arguments"
+  "failed to unify " ++ show (ppVType v1) ++ " (" ++ show (ppSourceOf v1) ++ ") with " ++ show (ppVType v2) ++ " (" ++ show (ppSourceOf v2) ++ ")" ++ " because they have different numbers of type arguments"
 
 errorUnifTys :: VType Desugared -> VType Desugared -> String
 errorUnifTys t1 t2 =
-  "failed to unify " ++ (show $ ppVType t1) ++ " (" ++ (show $ ppSourceOf t1) ++ ") with " ++ (show $ ppVType t2) ++ " (" ++ (show $ ppSourceOf t2) ++ ")"
+  "failed to unify " ++ show (ppVType t1) ++ " (" ++ show (ppSourceOf t1) ++ ") with " ++ show (ppVType t2) ++ " (" ++ show (ppSourceOf t2) ++ ")"
 
 errorUnifTyArgs :: TyArg Desugared -> TyArg Desugared -> String
 errorUnifTyArgs t1 t2 =
-  "failed to unify type arguments " ++ (show $ ppTyArg t1) ++ " (" ++ (show $ ppSourceOf t1) ++ ")" ++ " with " ++ (show $ ppTyArg t2) ++ " (" ++ (show $ ppSourceOf t2) ++ ")"
+  "failed to unify type arguments " ++ show (ppTyArg t1) ++ " (" ++ show (ppSourceOf t1) ++ ")" ++ " with " ++ show (ppTyArg t2) ++ " (" ++ show (ppSourceOf t2) ++ ")"
 
 errorUnifAbs :: Ab Desugared -> Ab Desugared -> String
 errorUnifAbs ab1 ab2 =
-  "cannot unify abilities " ++ (show $ ppAb ab1) ++ " (" ++ (show $ ppSourceOf ab1) ++ ")" ++ " and " ++ (show $ ppAb ab2) ++ " (" ++ (show $ ppSourceOf ab2) ++ ")"
+  "cannot unify abilities " ++ show (ppAb ab1) ++ " (" ++ show (ppSourceOf ab1) ++ ")" ++ " and " ++ show (ppAb ab2) ++ " (" ++ show (ppSourceOf ab2) ++ ")"
 
 errorUnifItfMaps :: ItfMap Desugared -> ItfMap Desugared -> String
 errorUnifItfMaps m1 m2 =
-  "cannot unify interface maps " ++ (show $ ppItfMap m1) ++ " (" ++ (show $ ppSourceOf m1) ++ ")" ++ " and " ++ (show $ ppItfMap m2) ++ " (" ++ (show $ ppSourceOf m2) ++ ")"
+  "cannot unify interface maps " ++ show (ppItfMap m1) ++ " (" ++ show (ppSourceOf m1) ++ ")" ++ " and " ++ show (ppItfMap m2) ++ " (" ++ show (ppSourceOf m2) ++ ")"
 
 errorAdaptor :: Adaptor Desugared -> Ab Desugared -> String
 errorAdaptor adpd@(Adp x ns k _) ab =
-  "Adaptor " ++ (show $ ppAdaptor adpd) ++
-  " is not a valid adaptor in ambient " ++ (show $ ppAb ab) ++
-  " (" ++  (show $ ppSourceOf adpd) ++ ")"
+  "Adaptor " ++ show (ppAdaptor adpd) ++
+  " is not a valid adaptor in ambient " ++ show (ppAb ab) ++
+  " (" ++  show (ppSourceOf adpd) ++ ")"
 errorAdaptor adpd@(CompilableAdp x m ns _) ab =
-  "Adaptor " ++ (show $ ppAdaptor adpd) ++
-  " is not a valid adaptor in ambient " ++ (show $ ppAb ab) ++
-  " (" ++  (show $ ppSourceOf adpd) ++ ")"
+  "Adaptor " ++ show (ppAdaptor adpd) ++
+  " is not a valid adaptor in ambient " ++ show (ppAb ab) ++
+  " (" ++  show (ppSourceOf adpd) ++ ")"
 
 errorUnifSolveOccurCheck :: String
 errorUnifSolveOccurCheck = "solve: occurs check failure"
 
 errorFindCmdNotPermit :: String -> Desugared -> String -> Ab Desugared -> String
-errorFindCmdNotPermit cmd loc itf amb = "command " ++ cmd ++ " belonging to interface " ++ itf ++ " not permitted by ambient ability: " ++ (show $ ppAb amb) ++ " (" ++ (show $ ppSourceOf amb) ++ ")"
+errorFindCmdNotPermit cmd loc itf amb = "command " ++ cmd ++ " belonging to interface " ++ itf ++ " not permitted by ambient ability: " ++ show (ppAb amb) ++ " (" ++ show (ppSourceOf amb) ++ ")"
 
 {- Logging (output if debug mode is on) -}
 
 logBeginFindCmd :: Identifier -> Identifier -> Maybe [TyArg Desugared] -> Contextual ()
 logBeginFindCmd x itf mps = ifDebugTypeCheckOnThen $
   debugTypeCheckM $ "find command " ++ show x ++ " of interface " ++ show itf ++
-                    " with instantiation " ++ show (mps >>= Just . (map (show . ppTyArg))) ++ "\n\n"
+                    " with instantiation " ++ show (mps >>= Just . map (show . ppTyArg)) ++ "\n\n"
 
 logEndFindCmd :: Identifier -> VType Desugared -> Contextual ()
 logEndFindCmd x ty = ifDebugTypeCheckOnThen $
@@ -162,7 +162,7 @@ logBeginInferUse u@(Op x _) = ifDebugTypeCheckOnThen $ do
   amb <- getAmbient
   debugTypeCheckM $ "begin infer use of single: Under curr. amb. " ++ show (ppAb amb) ++ "\n   infer type of " ++ show (ppUse u) ++ "\n\n"
   ctx <- getContext
-  debugTypeCheckM ("cur. context is:\n" ++ (show $ ppContext ctx) ++ "\n\n")
+  debugTypeCheckM ("cur. context is:\n" ++ show (ppContext ctx) ++ "\n\n")
 logBeginInferUse u@(App f xs _) = ifDebugTypeCheckOnThen $ do
   amb <- getAmbient
   debugTypeCheckM $ "begin infer use of app: Under curr. amb. " ++ show (ppAb amb) ++ "\n   infer type of " ++ show (ppUse u) ++ "\n\n"
@@ -176,14 +176,14 @@ logEndInferUse u@(Op x _) ty = ifDebugTypeCheckOnThen $ do
   amb <- getAmbient
   debugTypeCheckM $ "ended infer use of single: Under curr. amb. " ++ show (ppAb amb) ++ "\n   infer type of " ++ show (ppUse u) ++ "\n   gives " ++ show (ppVType ty)
   ctx <- getContext
-  debugTypeCheckM ("cur. context is:\n" ++ (show $ ppContext ctx) ++ "\n\n")
+  debugTypeCheckM ("cur. context is:\n" ++ show (ppContext ctx) ++ "\n\n")
 logEndInferUse u@(App f xs _) ty = ifDebugTypeCheckOnThen $ do
   amb <- getAmbient
   debugTypeCheckM $ "ended infer use of app: Under curr. amb. " ++ show (ppAb amb) ++ "\n   infer type of " ++ show (ppUse u) ++ "\n   gives " ++ show (ppVType ty) ++ "\n\n"
 logEndInferUse u@(Adapted rs t _) ty = ifDebugTypeCheckOnThen $ do
   amb <- getAmbient
   debugTypeCheckM $ "ended infer use of redirected: Under curr. amb. " ++
-    show (ppAb amb) ++ " redirected by <" ++ (show rs) ++
+    show (ppAb amb) ++ " redirected by <" ++ show rs ++
     ">\n   infer type of " ++ show (ppUse u) ++
     "\n   gives " ++ show (ppVType ty) ++ "\n\n"
 
@@ -215,7 +215,7 @@ logBeginSolve a ext ty = ifDebugTypeCheckOnThen $ do
 logSolveStep :: (Bool, Bool, Decl) -> Contextual ()
 logSolveStep p = ifDebugTypeCheckOnThen $ do
   ctx <- getContext
-  debugTypeCheckM $ "solving step: "
+  debugTypeCheckM "solving step: "
   case p of
     (_,     _,     TyDefn bty) -> debugTypeCheckM "\"inst-subs\""
     (True,  True,  Hole)       -> return ()
@@ -366,13 +366,14 @@ ppTyArg :: (Show a, HasSource a) => TyArg a -> PP.Doc
 ppTyArg (VArg t _) = ppParenVType t
 ppTyArg (EArg ab _) = ppAb ab
 
+{-# ANN ppParenVType "HLint: ignore Use record patterns" #-}
 ppParenVType :: (Show a, HasSource a) => VType a -> PP.Doc
 ppParenVType v@(DTTy _ _ _) = text "(" <+> ppVType v <+> text ")"
 ppParenVType v = ppVType v
 
 ppPort :: (Show a, HasSource a) => Port a -> PP.Doc
 ppPort (Port []   ty _) = ppVType ty
-ppPort (Port adjs ty _) = text "<" <> (PP.hsep $ intersperse PP.comma $ map ppAdj adjs) <> text ">" <> ppVType ty
+ppPort (Port adjs ty _) = text "<" <> PP.hsep (intersperse PP.comma $ map ppAdj adjs) <> text ">" <> ppVType ty
 
 ppPeg :: (Show a, HasSource a) => Peg a -> PP.Doc
 ppPeg (Peg ab ty _) = ppAb ab <> ppVType ty
@@ -398,10 +399,12 @@ ppItfMap (ItfMap m _) =
 
 ppItfInstances :: (Show a, HasSource a) => (Identifier, Bwd [TyArg a]) -> PP.Doc
 ppItfInstances (x, instants) =
-        PP.hsep $ intersperse PP.comma $ map (\args -> foldl (<+>) (text x) $ map ppTyArg args) (bwd2fwd instants)
+        PP.hsep
+        $ intersperse PP.comma
+        $ map (foldl (<+>) (text x) . map ppTyArg) (bwd2fwd instants)
 
 ppItfInstance :: (Show a, HasSource a) => (Identifier, [TyArg a]) -> PP.Doc
-ppItfInstance (x, ts) = text x <+> (PP.hsep $ map ppTyArg ts)
+ppItfInstance (x, ts) = text x <+> PP.hsep (map ppTyArg ts)
 
 ppSource :: Source -> PP.Doc
 ppSource (InCode (line, col)) = text "line" <+> text (show line) <+> text ", column" <+> text (show col)
@@ -463,11 +466,11 @@ ppAdaptor (CompilableAdp x m ns _) =
 {- TypeCheckCommon pretty printers -}
 
 ppContext :: Context -> PP.Doc
-ppContext = ppFwd . (map ppEntry) . bwd2fwd
+ppContext = ppFwd . map ppEntry . bwd2fwd
 
 ppEntry :: Entry -> PP.Doc
-ppEntry (FlexMVar x decl) = text "FlexMVar " <+> text x <+> text "\t=\t\t" <+> (ppDecl decl)
-ppEntry (TermVar op ty)   = text "TermVar " <+> text (show op) <+> text "\t:=\t" <+> (ppVType ty)
+ppEntry (FlexMVar x decl) = text "FlexMVar " <+> text x <+> text "\t=\t\t" <+> ppDecl decl
+ppEntry (TermVar op ty)   = text "TermVar " <+> text (show op) <+> text "\t:=\t" <+> ppVType ty
 ppEntry Mark              = text "<Mark>"
 
 ppDecl :: Decl -> PP.Doc
@@ -476,8 +479,7 @@ ppDecl (TyDefn ty) = text "val.ty. " <+> ppVType ty
 ppDecl (AbDefn ab) = text "eff.ty. " <+> ppAb ab
 
 ppSuffix :: Suffix -> PP.Doc
-ppSuffix = ppFwd . (map (\(x, d) -> "(" ++ show x ++ "," ++
-                                    show (ppDecl d) ++ ")"))
+ppSuffix = ppFwd . map (\(x, d) -> "(" ++ show x ++ "," ++ show (ppDecl d) ++ ")")
 
 ppItfs :: [Identifier] -> PP.Doc
 ppItfs p = PP.hsep $ intersperse PP.comma $ map text p
@@ -487,7 +489,7 @@ ppItfs p = PP.hsep $ intersperse PP.comma $ map text p
 ppFwd :: Show a => [a] -> PP.Doc
 ppFwd [] = text "[]"
 ppFwd xs = text "[" $$
-           sep (map ((nest 3) . text . show) xs) $$
+           sep (map (nest 3 . text . show) xs) $$
            text "]"
 
 ppBwd :: Show a => Bwd a -> PP.Doc
@@ -507,22 +509,22 @@ ppDef p@(DF id hss es) = header $+$ vcat cs
   where header = text id <> PP.parens (hsep portAnnots) <> colon
         portAnnots = punctuate comma $ map ppPort hss
         cs = punctuate comma $
-               map (\x -> text id <> (nest 3 (ppClauseShonky ($$) x))) es
+               map (\x -> text id <> nest 3 (ppClauseShonky ($$) x)) es
         ppPort :: ([Adap], [String]) -> PP.Doc
-        ppPort (adps, cmds) = PP.parens ((hsep $ punctuate comma (map ppAdap adps))
-                            <+> comma <+> (hsep $ punctuate comma (map text cmds)))
+        ppPort (adps, cmds) = PP.parens (hsep (punctuate comma (map ppAdap adps))
+                            <+> comma <+> hsep (punctuate comma (map text cmds)))
         ppAdap :: Adap -> PP.Doc
-        ppAdap (cmds, r) = text "([" <> (hsep $ punctuate comma (map text cmds)) <> text "]" <+>
+        ppAdap (cmds, r) = text "([" <> hsep (punctuate comma (map text cmds)) <> text "]" <+>
                            comma <+> ppRenaming r <+> text ")"
 -- TODO: LC: refactor above pretty-printer
 
 ppText :: (a -> PP.Doc) -> [Either Char a] -> PP.Doc
-ppText f ((Left c) : xs) = (text $ escChar c) <> (ppText f xs)
-ppText f ((Right x) : xs) = text "`" <> f x <> text "`" <> (ppText f xs)
+ppText f (Left c : xs) = text (escChar c) <> ppText f xs
+ppText f (Right x : xs) = text "`" <> f x <> text "`" <> ppText f xs
 ppText f [] = text "|]"
 
 isEscChar :: Char -> Bool
-isEscChar c = any (c ==) ['\n','\t','\b']
+isEscChar c = c `elem` ['\n','\t','\b']
 
 escChar :: Char -> String
 escChar c = f [('\n', "\\n"),('\t', "\\t"),('\b', "\\b")]
@@ -550,7 +552,7 @@ ppExp (EF xs ys) =
   let clauses = map (ppClauseShonky (<+>)) ys in
   PP.braces $ hcat (punctuate comma clauses)
 ppExp (EX xs) = text "[|" <> ppText ppExp xs
-ppExp (ER (cs, r) e) = text "<(" <+> (hcat $ punctuate comma (map text cs))
+ppExp (ER (cs, r) e) = text "<(" <+> hcat (punctuate comma (map text cs))
                     <> text ")" <+> ppRenaming r <> text ">"
                     <+> PP.parens (ppExp e)
 

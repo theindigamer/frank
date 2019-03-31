@@ -43,17 +43,14 @@ putEnv p = do s <- getDState
               putDState $ s { env = p }
 
 getEnv :: Desugar IdTVMap
-getEnv = do s <- getDState
-            return $ env s
+getEnv = env <$> getDState
 
 putAbModEnv :: IdAbModMap -> Desugar ()
 putAbModEnv p = do s <- getDState
                    putDState $ s { abModEnv = p }
 
 getAbModEnv :: Desugar IdAbModMap
-getAbModEnv = do s <- getDState
-                 return $ abModEnv s
-
+getAbModEnv = abModEnv <$> getDState
 
 initDState :: DState
 initDState = MkDState M.empty M.empty
@@ -174,7 +171,7 @@ desugarCType (CType ports peg a) =
   CType <$> mapM desugarPort ports <*> desugarPeg peg <*> pure (refToDesug a)
 
 desugarPort :: Port Refined -> Desugar (Port Desugared)
-desugarPort (Port adjs ty a) = Port <$> (mapM desugarAdjustment adjs)
+desugarPort (Port adjs ty a) = Port <$> mapM desugarAdjustment adjs
                                     <*> desugarVType ty
                                     <*> pure (refToDesug a)
 
@@ -202,8 +199,8 @@ desugarAbMod (AbVar x a) =
 
 -- nothing happens on this level
 desugarAdjustment :: Adjustment Refined -> Desugar (Adjustment Desugared)
-desugarAdjustment (ConsAdj x ts a) = ConsAdj x <$> (mapM desugarTyArg ts) <*> pure (refToDesug a)
-desugarAdjustment (AdaptorAdj adp a) = AdaptorAdj <$> (desugarAdaptor adp) <*> pure (refToDesug a)
+desugarAdjustment (ConsAdj x ts a) = ConsAdj x <$> mapM desugarTyArg ts <*> pure (refToDesug a)
+desugarAdjustment (AdaptorAdj adp a) = AdaptorAdj <$> desugarAdaptor adp <*> pure (refToDesug a)
 
 desugarItfMap :: ItfMap Refined -> Desugar (ItfMap Desugared)
 desugarItfMap (ItfMap m a) = do m' <- mapM (mapM (mapM desugarTyArg)) m
@@ -248,8 +245,8 @@ desugarUse :: Use Refined -> Desugar (Use Desugared)
 desugarUse (App use xs a) =
   App <$> desugarUse use <*> mapM desugarTerm xs <*> pure (refToDesug a)
 desugarUse (Op op a) = Op <$> desugarOperator op <*> pure (refToDesug a)
-desugarUse (Adapted rs t a) = Adapted <$> (mapM desugarAdaptor rs)
-                                 <*> desugarUse t <*> pure (refToDesug a)
+desugarUse (Adapted rs t a) =
+  Adapted <$> mapM desugarAdaptor rs <*> desugarUse t <*> pure (refToDesug a)
 
 -- explicit refinements:
 -- + Rem, Copy and Swap gets desugared to GeneralAdaptor

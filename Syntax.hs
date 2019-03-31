@@ -4,8 +4,7 @@
              FlexibleInstances, UndecidableInstances,
              DataKinds, KindSignatures, ConstraintKinds,
              LambdaCase,
-             PatternSynonyms
-#-}
+             PatternSynonyms #-}
 module Syntax where
 
 import qualified Data.Map.Strict as M
