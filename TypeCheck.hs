@@ -141,18 +141,18 @@ inferEvalUse p use = runExcept $ evalFreshMT $ evalStateT comp initTCState
 -- Main typechecking function
 -- + Init TCState
 -- + Check each top term
--- + If no exception is thrown during checkTopTm, return input program
+-- + If no exception is thrown during checkTopTerm, return input program
 check :: Prog Desugared -> Either String (Prog Desugared)
 check p = runExcept $ evalFreshMT $ evalStateT (checkProg p) initTCState
   where
     checkProg p = unCtx $ do MkProg xs <- initContextual p
                              theCtx <- getContext
-                             xs' <- mapM checkTopTm xs
+                             xs' <- mapM checkTopTerm xs
                              return $ MkProg xs'
 
-checkTopTm :: TopTm Desugared -> Contextual (TopTm Desugared)
-checkTopTm (DefTm def a) = DefTm <$> checkMultiHandlerDefinition def <*> pure a
-checkTopTm x = return x
+checkTopTerm :: TopTerm Desugared -> Contextual (TopTerm Desugared)
+checkTopTerm (DefTerm def a) = DefTerm <$> checkMultiHandlerDefinition def <*> pure a
+checkTopTerm x = return x
 
 checkMultiHandlerDefinition :: MultiHandlerDefinition Desugared -> Contextual (MultiHandlerDefinition Desugared)
 checkMultiHandlerDefinition (Def id ty@(CType ps q _) cs a) = do
@@ -203,7 +203,7 @@ inferUse app@(App f xs a) =                                                     
         --           (according to arguments) and constrain ty (unify)
         --      2.2) [..., y:=ty', ..., f:=y, ...]
         --           try 2) again, this time with ty'
-        discriminate :: VType Desugared -> Contextual ([Tm Desugared], VType Desugared)
+        discriminate :: VType Desugared -> Contextual ([Term Desugared], VType Desugared)
         discriminate ty@(SCTy (CType ps (Peg ab ty' _) _) _) =
         -- {p_1 -> ... p_n -> [ab] ty'}
           do amb <- getAmbient
@@ -238,11 +238,11 @@ inferUse app@(App f xs a) =                                                     
                    (show $ ppVType ty)
 
         -- Check typing tm: ty in ambient [adj]
-        checkArg :: Port Desugared -> Tm Desugared -> Contextual (Tm Desugared)
+        checkArg :: Port Desugared -> Term Desugared -> Contextual (Term Desugared)
         checkArg (Port adjs ty _) tm =
           do amb <- getAmbient >>= expandAb
              (_, amb') <- applyAllAdjustments adjs amb
-             inAmbient amb' (checkTm tm ty)
+             inAmbient amb' (checkTerm tm ty)
 inferUse adpd@(Adapted adps t a) =
   do logBeginInferUse adpd
      amb <- getAmbient >>= expandAb
@@ -256,21 +256,21 @@ inferUse adpd@(Adapted adps t a) =
 
 -- 2nd major TC function besides "check": Check that term (construction) has
 -- given type
-checkTm :: Tm Desugared -> VType Desugared -> Contextual (Tm Desugared)
-checkTm (SC sc a) ty = SC <$> (checkSComp sc ty) <*> (pure a)
-checkTm tm@(StrTm _ a) ty = unify (desugaredStrTy a) ty >> return tm
-checkTm tm@(IntTm _ a) ty = unify (IntTy a) ty >> return tm
-checkTm tm@(CharTm _ a) ty = unify (CharTy a) ty >> return tm
-checkTm tm@(TmSeq tm1 tm2 a) ty =
+checkTerm :: Term Desugared -> VType Desugared -> Contextual (Term Desugared)
+checkTerm (SC sc a) ty = SC <$> (checkSComp sc ty) <*> (pure a)
+checkTerm tm@(StrTerm _ a) ty = unify (desugaredStrTy a) ty >> return tm
+checkTerm tm@(IntTerm _ a) ty = unify (IntTy a) ty >> return tm
+checkTerm tm@(CharTerm _ a) ty = unify (CharTy a) ty >> return tm
+checkTerm tm@(TermSeq tm1 tm2 a) ty =
   -- create dummy mvar s.t. any type of tm1 can be unified with it
   do ftvar <- freshMVar "seq"
-     tm1' <- checkTm tm1 (FTVar ftvar a)
-     tm2' <- checkTm tm2 ty
-     return $ TmSeq tm1' tm2' a
-checkTm (Use u a) t = do (u', s) <- inferUse u
-                         unify t s
-                         return $ Use u' a
-checkTm (DCon (DataCon k xs a') a) ty =
+     tm1' <- checkTerm tm1 (FTVar ftvar a)
+     tm2' <- checkTerm tm2 ty
+     return $ TermSeq tm1' tm2' a
+checkTerm (Use u a) t = do (u', s) <- inferUse u
+                           unify t s
+                           return $ Use u' a
+checkTerm (DCon (DataCon k xs a') a) ty =
   do (dt, args, ts) <- getCtr k
 --    data dt arg_1 ... arg_m = k t_1 ... t_n | ...
      addMark
@@ -279,7 +279,7 @@ checkTm (DCon (DataCon k xs a') a) ty =
      ts' <- mapM (makeFlexible []) ts
      -- unify with expected type
      unify ty (DTTy dt args' a)
-     xs' <- mapM (uncurry checkTm) (zip xs ts')
+     xs' <- mapM (uncurry checkTerm) (zip xs ts')
      return $ DCon (DataCon k xs' a') a
 
 
@@ -340,12 +340,12 @@ checkCls (CType ports (Peg ab ty _) _) cls@(Cls pats tm a)
         -- Bring any bindings in to scope for checking the term then purge the
         -- marks (and suffixes) in the context created for this clause.
         if null bs then -- Just purge marks
-                        do tm' <- checkTm tm ty
+                        do tm' <- checkTerm tm ty
                            purgeMarks
                            return (Cls pats tm' a)
                    else -- Push all bindings to context, then check tm, then
                         -- remove bindings, finally purge marks.
-                        do tm' <- foldl1 (.) (map (uncurry inScope) bs) $ checkTm tm ty
+                        do tm' <- foldl1 (.) (map (uncurry inScope) bs) $ checkTerm tm ty
                            purgeMarks
                            return (Cls pats tm' a)
   | otherwise = throwError $ errorTCPatternPortMismatch cls

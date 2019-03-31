@@ -30,38 +30,38 @@ type PMap = M.Map FilePath (Prog Raw)
 
 -- Function checks whether or not a main function exists in the program
 existsMain :: Prog t -> Bool
-existsMain (MkProg xs) = "main" `elem` [ident | DefTm (Def ident _ _ _) _ <- xs]
+existsMain (MkProg xs) = "main" `elem` [ident | DefTerm (Def ident _ _ _) _ <- xs]
 
-splice :: Prog Raw -> Tm Raw -> Prog Raw
+splice :: Prog Raw -> Term Raw -> Prog Raw
 splice (MkProg xs) tm = MkProg $ xs ++ ys
   where ys = [sig, cls]
-        sig = SigTm (Sig id (CType [] peg b) b) b
+        sig = SigTerm (Sig id (CType [] peg b) b) b
         peg = Peg ab ty b
         ty = TVar "%X" b
         ab = Ab (AbVar "£" b) (ItfMap M.empty (Raw Generated)) b
-        cls = ClsTm (MHCls id (Cls [] tm b) b) b
+        cls = ClsTerm (MHCls id (Cls [] tm b) b) b
         id = "%eval"
         b = Raw Generated
 
 --TODO: LC: Fix locations?
-exorcise :: Prog Desugared -> (Prog Desugared, TopTm Desugared)
-exorcise (MkProg xs) = (prog, DefTm (head evalDef) a)
-  where prog = MkProg (map (swap DataTm a) dts ++
-                       map (swap ItfTm a) itfs ++
-                       map (swap DefTm a) hdrs)
-        dts = [d | DataTm d _ <- xs]
-        itfs = [i | ItfTm i _ <- xs]
-        defs = [d | DefTm d _ <- xs]
-        (evalDef,hdrs) = partition isEvalTm defs
-        isEvalTm (Def id _ _ _) = id == "%eval"
+exorcise :: Prog Desugared -> (Prog Desugared, TopTerm Desugared)
+exorcise (MkProg xs) = (prog, DefTerm (head evalDef) a)
+  where prog = MkProg (map (swap DataTerm a) dts ++
+                       map (swap ItfTerm a) itfs ++
+                       map (swap DefTerm a) hdrs)
+        dts = [d | DataTerm d _ <- xs]
+        itfs = [i | ItfTerm i _ <- xs]
+        defs = [d | DefTerm d _ <- xs]
+        (evalDef,hdrs) = partition isEvalTerm defs
+        isEvalTerm (Def id _ _ _) = id == "%eval"
         a = Desugared Generated
 
-extractEvalUse :: TopTm Desugared -> Use Desugared
-extractEvalUse (DefTm (Def _ _ [cls] _) _) = getBody cls
+extractEvalUse :: TopTerm Desugared -> Use Desugared
+extractEvalUse (DefTerm (Def _ _ [cls] _) _) = getBody cls
   where getBody (Cls [] (Use u _) _) = u
         getBody _ = error "extractEvalUse: eval body invariant broken"
 
-glue :: Prog Desugared -> TopTm Desugared -> Prog Desugared
+glue :: Prog Desugared -> TopTerm Desugared -> Prog Desugared
 glue (MkProg xs) x = MkProg (x : xs)
 
 parseProg :: FilePath -> Args -> IO (Either String (Prog Raw))
@@ -80,7 +80,7 @@ parseProg fileName args =
                Left msg -> return $ Left msg
                Right (p,fs) -> foldM pProg (Right (M.insert fname p map)) fs
 
-        combine :: [TopTm Raw] -> Prog Raw -> [TopTm Raw]
+        combine :: [TopTerm Raw] -> Prog Raw -> [TopTerm Raw]
         combine xs (MkProg ys) = xs ++ ys
 
         incPaths :: [String]
@@ -100,12 +100,12 @@ parseProg fileName args =
                                  return $ if b then Just x else Nothing
                 g x@(Just _) _ = return x
 
-parseEvalTm :: String -> IO (Tm Raw)
-parseEvalTm v = case runTokenParse tm v of
+parseEvalTerm :: String -> IO (Term Raw)
+parseEvalTerm v = case runTokenParse tm v of
   Left err -> die err
   Right tm -> return tm
 
-refineComb :: Either String (Prog Raw) -> Tm Raw -> IO (Prog Refined)
+refineComb :: Either String (Prog Raw) -> Term Raw -> IO (Prog Refined)
 refineComb prog tm = case prog of
     Left err -> die err
     Right p -> case refine (splice p tm) of
@@ -152,7 +152,7 @@ compileAndRunProg fileName args =
   do let progName = takeWhile (/= '.') fileName
      prog <- parseProg fileName args
      case lookup "eval" args of
-       Just [v] -> do tm <- parseEvalTm v
+       Just [v] -> do tm <- parseEvalTerm v
                       -- lift tm to top term and append to prog
                       p <- refineComb prog tm
                       -- tear apart again

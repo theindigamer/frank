@@ -61,10 +61,10 @@ compileToFile p dst = writeFile (dst ++ ".uf") (show $ ppProgShonky $ compile p)
 compile :: Prog Desugared -> [S.Def S.Exp]
 compile (MkProg xs) = res
   where res = reverse $ evalState (compile' xs) st
-        st = initialiseItfMap initCState [i | ItfTm i _ <- xs]
+        st = initialiseItfMap initCState [i | ItfTerm i _ <- xs]
 
-compile' :: [TopTm Desugared] -> Compile [S.Def S.Exp]
-compile' xs = concat <$> mapM compileTopTm xs
+compile' :: [TopTerm Desugared] -> Compile [S.Def S.Exp]
+compile' xs = concat <$> mapM compileTopTerm xs
 
 initialiseItfMap :: CState -> [Itf Desugared] -> CState
 initialiseItfMap st xs = st { imap = foldl f (imap st) xs }
@@ -73,13 +73,13 @@ initialiseItfMap st xs = st { imap = foldl f (imap st) xs }
           let xs = M.findWithDefault [] itf m in
           M.insert itf (cmd : xs) m
 
-compileTopTm :: TopTm Desugared -> Compile [S.Def S.Exp]
-compileTopTm (DataTm x _) = compileDatatype x
-compileTopTm (DefTm x@(Def ident _ _ _) _) =
+compileTopTerm :: TopTerm Desugared -> Compile [S.Def S.Exp]
+compileTopTerm (DataTerm x _) = compileDatatype x
+compileTopTerm (DefTerm x@(Def ident _ _ _) _) =
   if isBuiltin ident
   then return []
   else (:[]) <$> compileMultiHandlerDefinition x
-compileTopTm _ = return [] -- interfaces are ignored for now. add to a map?
+compileTopTerm _ = return [] -- interfaces are ignored for now. add to a map?
 
 -- a constructor is then just a cons cell of its arguments
 -- how to do pattern matching correctly? maybe they are just n-adic functions
@@ -129,7 +129,7 @@ compilePort p@(Port adjs _ _) =
 
 compileClause :: Clause Desugared -> Compile ([S.Pat], S.Exp)
 compileClause (Cls ps tm _) = do ps' <- mapM compilePattern ps
-                                 e <- compileTm tm
+                                 e <- compileTerm tm
                                  return (ps', e)
 
 compilePattern :: Pattern Desugared -> Compile S.Pat
@@ -156,22 +156,22 @@ compileVPat ((StrPat s a) :: ValuePat Desugared) = compileVPat (compileStrPat s)
   compileStrPat (c:cs) = DataPat "cons" [CharPat c a, compileStrPat cs] a
 compileVPat (CharPat c _) = return $ S.VPX [Left c]
 
-compileTm :: Tm Desugared -> Compile S.Exp
-compileTm (SC sc _) = compileSComp sc
--- compileTm MkLet = return $ S.EV "let"
-compileTm (StrTm s a) = compileDataCon (f s) where
+compileTerm :: Term Desugared -> Compile S.Exp
+compileTerm (SC sc _) = compileSComp sc
+-- compileTerm MkLet = return $ S.EV "let"
+compileTerm (StrTerm s a) = compileDataCon (f s) where
   f :: String -> DataCon Desugared
   f [] = DataCon "nil" [] a
-  f (c:cs) = DataCon "cons" [CharTm c a, DCon (f cs) a] a
-compileTm (IntTm n _) = return $ S.EI n
-compileTm (CharTm c _) = return $ S.EX [Left c]
-compileTm (TmSeq t1 t2 _) = (S.:!) <$> compileTm t1 <*> compileTm t2
-compileTm (Use u _) = compileUse u
-compileTm (DCon d _) = compileDataCon d
+  f (c:cs) = DataCon "cons" [CharTerm c a, DCon (f cs) a] a
+compileTerm (IntTerm n _) = return $ S.EI n
+compileTerm (CharTerm c _) = return $ S.EX [Left c]
+compileTerm (TermSeq t1 t2 _) = (S.:!) <$> compileTerm t1 <*> compileTerm t2
+compileTerm (Use u _) = compileUse u
+compileTerm (DCon d _) = compileDataCon d
 
 compileUse :: Use Desugared -> Compile S.Exp
 compileUse (Op op _) = compileOp op
-compileUse (App use xs _) = (S.:$) <$> compileUse use <*> mapM compileTm xs
+compileUse (App use xs _) = (S.:$) <$> compileUse use <*> mapM compileTerm xs
 compileUse (Adapted [] t _) = compileUse t
 compileUse (Adapted (r:rr) t a) =
   do (cs, r') <- compileAdaptor r
@@ -185,7 +185,7 @@ compileAdaptor adp@(CompilableAdp x m ns _) = do
 
 
 compileDataCon :: DataCon Desugared -> Compile S.Exp
-compileDataCon (DataCon id xs _) = do xs' <- mapM compileTm xs
+compileDataCon (DataCon id xs _) = do xs' <- mapM compileTerm xs
                                       return (S.EV id S.:$ xs')
 
 compileSComp :: SComp Desugared -> Compile S.Exp

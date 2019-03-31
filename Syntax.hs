@@ -145,7 +145,7 @@ newtype Desugared = Desugared Source
 -- - require Raw/Refined/Desugared:   t = AnnotT Raw
 -- - require NotRaw / NotDesugared:   NotRaw (t Identity ()) =>   annotation
 
-newtype Prog t = MkProg [TopTm t]
+newtype Prog t = MkProg [TopTerm t]
   deriving (Show, Eq)
 
 -- | A top-level multihandler signature and clause.
@@ -255,13 +255,13 @@ pattern DataCon x tms a = MkFix (MkAnnotT (MkDataCon x tms, a))
 -- refined top-level term collects multihandler signatures and clauses in
 -- one definition.
 data TopTermF :: Transformer -> * -> * where
-  MkDataTm :: TFix t DataTF -> TopTermF t r
-  MkItfTm :: TFix t ItfF -> TopTermF t r
-  MkItfAliasTm :: TFix t ItfAliasF -> TopTermF t r
-  MkSigTm :: TFix (AnnotT Raw) MultiHandlerSignatureF -> TopTermF (AnnotT Raw) r
-  MkClsTm :: TFix (AnnotT Raw) MHClsF -> TopTermF (AnnotT Raw) r
-  MkDefTm :: NotRaw (t Identity ()) => TFix t MultiHandlerDefinitionF -> TopTermF t r
-  -- MkDefTm :: NotRaw t => MHDef t -> TopTermF t r
+  MkDataTerm :: TFix t DataTF -> TopTermF t r
+  MkItfTerm :: TFix t ItfF -> TopTermF t r
+  MkItfAliasTerm :: TFix t ItfAliasF -> TopTermF t r
+  MkSigTerm :: TFix (AnnotT Raw) MultiHandlerSignatureF -> TopTermF (AnnotT Raw) r
+  MkClsTerm :: TFix (AnnotT Raw) MHClsF -> TopTermF (AnnotT Raw) r
+  MkDefTerm :: NotRaw (t Identity ()) => TFix t MultiHandlerDefinitionF -> TopTermF t r
+  -- MkDefTerm :: NotRaw t => MHDef t -> TopTermF t r
 
 type TopTermF_ClassReq (c :: Type -> Constraint) r t =
   ( c (TFix t DataTF)
@@ -276,25 +276,25 @@ type TopTermF_ClassReq (c :: Type -> Constraint) r t =
 deriving instance TopTermF_ClassReq Show r t => Show (TopTermF t r)
 deriving instance TopTermF_ClassReq Eq r t   => Eq (TopTermF t r)
 
-type TopTm a = AnnotTFix a TopTermF
+type TopTerm a = AnnotTFix a TopTermF
 
-pattern DataTm dt a = MkFix (MkAnnotT (MkDataTm dt, a))
-pattern ItfTm itf a = MkFix (MkAnnotT (MkItfTm itf, a))
-pattern ItfAliasTm itfAl a = MkFix (MkAnnotT (MkItfAliasTm itfAl, a))
-pattern SigTm sig a = MkFix (MkAnnotT (MkSigTm sig, a))
-pattern ClsTm cls a = MkFix (MkAnnotT (MkClsTm cls, a))
-pattern DefTm def a = MkFix (MkAnnotT (MkDefTm def, a))
+pattern DataTerm dt a = MkFix (MkAnnotT (MkDataTerm dt, a))
+pattern ItfTerm itf a = MkFix (MkAnnotT (MkItfTerm itf, a))
+pattern ItfAliasTerm itfAl a = MkFix (MkAnnotT (MkItfAliasTerm itfAl, a))
+pattern SigTerm sig a = MkFix (MkAnnotT (MkSigTerm sig, a))
+pattern ClsTerm cls a = MkFix (MkAnnotT (MkClsTerm cls, a))
+pattern DefTerm def a = MkFix (MkAnnotT (MkDefTerm def, a))
 
 -- TODO: LC: Automatic generation of the following? Should be possible
 --           somehow
 
-instance HasIdentifier (TopTm t) where
-  getIdentifier (DataTm dt _)        = getIdentifier dt
-  getIdentifier (ItfTm itf _)        = getIdentifier itf
-  getIdentifier (ItfAliasTm itfAl _) = getIdentifier itfAl
-  getIdentifier (SigTm sig _)        = getIdentifier sig
-  getIdentifier (ClsTm cls _)        = getIdentifier cls
-  getIdentifier (DefTm def _)        = getIdentifier def
+instance HasIdentifier (TopTerm t) where
+  getIdentifier (DataTerm dt _)        = getIdentifier dt
+  getIdentifier (ItfTerm itf _)        = getIdentifier itf
+  getIdentifier (ItfAliasTerm itfAl _) = getIdentifier itfAl
+  getIdentifier (SigTerm sig _)        = getIdentifier sig
+  getIdentifier (ClsTerm cls _)        = getIdentifier cls
+  getIdentifier (DefTerm def _)        = getIdentifier def
 
 data UseF :: Transformer -> * -> * where
   MkRawIdentifier :: Identifier -> UseF (AnnotT Raw) r
@@ -321,7 +321,7 @@ pattern Op op a = MkFix (MkAnnotT (MkOp op, a))
 pattern App f xs a = MkFix (MkAnnotT (MkApp f xs, a))
 pattern Adapted rs tm a = MkFix (MkAnnotT (MkAdapted rs tm, a))
 
--- Tm here = 'construction' in the paper
+-- Term here = 'construction' in the paper
 
 data TermF :: Transformer -> * -> * where
   MkSC :: TFix t SCompF -> TermF t r
@@ -330,7 +330,7 @@ data TermF :: Transformer -> * -> * where
   MkInt :: Int -> TermF t r
   MkChar :: Char -> TermF t r
   MkList :: [r] -> TermF (AnnotT Raw) r
-  MkTmSeq :: r -> r -> TermF t r
+  MkTermSeq :: r -> r -> TermF t r
   MkUse :: TFix t UseF -> TermF t r
   MkDCon :: NotRaw (t Identity ()) => TFix t DataConF -> TermF t r
 
@@ -344,14 +344,14 @@ type TermF_ClassReq (c :: Type -> Constraint) r t =
 deriving instance TermF_ClassReq Show r t => Show (TermF t r)
 deriving instance TermF_ClassReq Eq   r t => Eq (TermF t r)
 
-type Tm a = AnnotTFix a TermF
+type Term a = AnnotTFix a TermF
 pattern SC sc a = MkFix (MkAnnotT (MkSC sc, a))
 pattern Let x tm1 tm2 a = MkFix (MkAnnotT (MkLet x tm1 tm2, a))
-pattern StrTm str a = MkFix (MkAnnotT (MkStr str, a))
-pattern IntTm n a = MkFix (MkAnnotT (MkInt n, a))
-pattern CharTm c a = MkFix (MkAnnotT (MkChar c, a))
-pattern ListTm xs a = MkFix (MkAnnotT (MkList xs, a))
-pattern TmSeq tm1 tm2 a = MkFix (MkAnnotT (MkTmSeq tm1 tm2, a))
+pattern StrTerm str a = MkFix (MkAnnotT (MkStr str, a))
+pattern IntTerm n a = MkFix (MkAnnotT (MkInt n, a))
+pattern CharTerm c a = MkFix (MkAnnotT (MkChar c, a))
+pattern ListTerm xs a = MkFix (MkAnnotT (MkList xs, a))
+pattern TermSeq tm1 tm2 a = MkFix (MkAnnotT (MkTermSeq tm1 tm2, a))
 pattern Use u a = MkFix (MkAnnotT (MkUse u, a))
 pattern DCon dc a = MkFix (MkAnnotT (MkDCon dc, a))
 

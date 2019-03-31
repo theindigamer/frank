@@ -82,14 +82,14 @@ errorRefEffVarNoParams x = "effect variable " ++ x ++ " may not take parameters"
 errorRefIdNotDeclared :: String -> Identifier -> Raw -> String
 errorRefIdNotDeclared sort x a = "no " ++ sort ++ " named " ++ x ++ " declared (" ++ (show $ ppSourceOf a) ++ ")"
 
-errorRefExpectedUse :: Tm Refined -> String
+errorRefExpectedUse :: Term Refined -> String
 errorRefExpectedUse tm = "expected use but got term: " ++ show tm ++ "(" ++ (show $ ppSourceOf tm) ++ ")"
 
 errorRefEntryAlreadyDefined :: String -> Identifier -> String
 errorRefEntryAlreadyDefined sort x = sort ++ " " ++ x ++ " already defined"
 
-errorRefDuplTopTm :: String -> Identifier -> Source -> String
-errorRefDuplTopTm sort x a = "duplicate " ++ sort ++ ": " ++ x ++ " already defined (" ++ show a ++ ")"
+errorRefDuplTopTerm :: String -> Identifier -> Source -> String
+errorRefDuplTopTerm sort x a = "duplicate " ++ sort ++ ": " ++ x ++ " already defined (" ++ show a ++ ")"
 
 errorRefNumberOfArguments :: Identifier -> Int -> Int -> Raw -> String
 errorRefNumberOfArguments x exp act a = x ++ " expects " ++ show exp ++ " argument(s) but " ++ show act ++ " given (" ++ (show $ ppSourceOf a) ++ ")"
@@ -290,14 +290,14 @@ vsep = foldr ($+$) empty
 type Doc = PP.Doc
 
 ppProg :: (Show a, HasSource a) => Prog a -> PP.Doc
-ppProg (MkProg tts) = foldl (PP.$+$ ) PP.empty (map ppTopTm tts)
+ppProg (MkProg tts) = foldl (PP.$+$ ) PP.empty (map ppTopTerm tts)
 
-ppTopTm :: (Show a, HasSource a) => TopTm a -> PP.Doc
-ppTopTm (DataTm dt _) = ppDataT dt
-ppTopTm (ItfTm itf _) = ppItf itf
-ppTopTm (SigTm sig _) = text $ show sig
-ppTopTm (ClsTm cls _) = text $ show cls
-ppTopTm (DefTm def _) = ppMultiHandlerDefinition def
+ppTopTerm :: (Show a, HasSource a) => TopTerm a -> PP.Doc
+ppTopTerm (DataTerm dt _) = ppDataT dt
+ppTopTerm (ItfTerm itf _) = ppItf itf
+ppTopTerm (SigTerm sig _) = text $ show sig
+ppTopTerm (ClsTerm cls _) = text $ show cls
+ppTopTerm (DefTerm def _) = ppMultiHandlerDefinition def
 
 ppDataT :: (Show a, HasSource a) => DataT a -> PP.Doc
 ppDataT (DT id tyVars ctrs a) = text "data" <+>
@@ -321,7 +321,7 @@ ppMultiHandlerDefinition (Def id cty cls _) = text id <+> text ":" <+>
 ppClause :: (Show a, HasSource a) => Identifier -> Clause a -> PP.Doc
 ppClause id (Cls ps tm _) = text id <+>
                             (vcat . map ppPattern) ps <+> text "=" $$
-                            (nest 3 . ppTm) tm
+                            (nest 3 . ppTerm) tm
 
 ppPattern :: (Show a, HasSource a) => Pattern a -> PP.Doc
 ppPattern (VPat vp _) = ppValuePat vp
@@ -414,15 +414,15 @@ ppSource Generated = text "generated"
 ppSourceOf :: (HasSource a) => a -> PP.Doc
 ppSourceOf x = ppSource (getSource x)
 
-ppTm :: (Show a, HasSource a) => Tm a -> PP.Doc
-ppTm (SC sc _) = ppSComp sc
-ppTm (StrTm str _) = text "{" <+> text str <+> text "}"
-ppTm (IntTm n _) = text (show n)
-ppTm (CharTm c _) = text (show c)
-ppTm (ListTm xs _) = text "[" <+> sep (map ppTm xs) <+> text "]"
-ppTm (TmSeq t1 t2 _) = PP.parens $ ppTm t1 <+> text "; " <+> ppTm t2
-ppTm (Use u _) = PP.parens $ ppUse u
-ppTm (DCon dc _) = PP.parens $ ppDataCon dc
+ppTerm :: (Show a, HasSource a) => Term a -> PP.Doc
+ppTerm (SC sc _) = ppSComp sc
+ppTerm (StrTerm str _) = text "{" <+> text str <+> text "}"
+ppTerm (IntTerm n _) = text (show n)
+ppTerm (CharTerm c _) = text (show c)
+ppTerm (ListTerm xs _) = text "[" <+> sep (map ppTerm xs) <+> text "]"
+ppTerm (TermSeq t1 t2 _) = PP.parens $ ppTerm t1 <+> text "; " <+> ppTerm t2
+ppTerm (Use u _) = PP.parens $ ppUse u
+ppTerm (DCon dc _) = PP.parens $ ppDataCon dc
 
 ppSComp :: (Show a, HasSource a) => SComp a -> PP.Doc
 ppSComp (SComp cls _) = text "{" <+> sep (map (ppClause "") cls) <+> text "}"
@@ -436,9 +436,9 @@ ppUse (Adapted rs t _) =
   PP.parens $ text "<" <> ppAdaptors rs <> text ">" <+> ppUse t
 
 -- TODO: LC: fix parenthesis output...
-ppArgs :: (Show a, HasSource a) => [Tm a] -> PP.Doc
+ppArgs :: (Show a, HasSource a) => [Term a] -> PP.Doc
 ppArgs [] = text "!"
-ppArgs args = sep (map ppTm args)
+ppArgs args = sep (map ppTerm args)
 
 ppOperator :: (Show a, HasSource a) => Operator a -> PP.Doc
 ppOperator (Mono x _) = text x
@@ -446,7 +446,7 @@ ppOperator (Poly x _) = text x
 ppOperator (CmdIdentifier x _) = text x
 
 ppDataCon :: (Show a, HasSource a) => DataCon a -> PP.Doc
-ppDataCon (DataCon x tms _) = text x <+> sep (map ppTm tms)
+ppDataCon (DataCon x tms _) = text x <+> sep (map ppTerm tms)
 
 ppAdaptors :: (Show a, HasSource a) => [Adaptor a] -> PP.Doc
 ppAdaptors rs = PP.hsep $ intersperse PP.comma $ map ppAdaptor rs

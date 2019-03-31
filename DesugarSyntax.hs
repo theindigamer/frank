@@ -60,16 +60,16 @@ initDState = MkDState M.empty M.empty
 
 desugar :: Prog Refined -> Prog Desugared
 desugar (MkProg xs) = MkProg $ evalFresh m
-  where m = evalStateT (mapM desugarTopTm' xs) initDState
-        desugarTopTm' tm =
+  where m = evalStateT (mapM desugarTopTerm' xs) initDState
+        desugarTopTerm' tm =
           do putEnv M.empty -- purge mappings from previous context.
-             desugarTopTm tm
+             desugarTopTerm tm
 
 -- no explicit refinements
-desugarTopTm :: TopTm Refined -> Desugar (TopTm Desugared)
-desugarTopTm (DataTm dt a) = DataTm <$> desugarDataT dt <*> pure (refToDesug a)
-desugarTopTm (ItfTm itf a) = ItfTm <$> desugarItf itf <*> pure (refToDesug a)
-desugarTopTm (DefTm def a) = DefTm <$> desugarMultiHandlerDefinition def <*> pure (refToDesug a)
+desugarTopTerm :: TopTerm Refined -> Desugar (TopTerm Desugared)
+desugarTopTerm (DataTerm dt a) = DataTerm <$> desugarDataT dt <*> pure (refToDesug a)
+desugarTopTerm (ItfTerm itf a) = ItfTerm <$> desugarItf itf <*> pure (refToDesug a)
+desugarTopTerm (DefTerm def a) = DefTerm <$> desugarMultiHandlerDefinition def <*> pure (refToDesug a)
 
 -- explicit refinements:
 -- + type variables get fresh ids
@@ -213,17 +213,17 @@ desugarItfMap (ItfMap m a) = do m' <- mapM (mapM (mapM desugarTyArg)) m
 -- Refine/Desugar phase
 desugarClause :: Clause Refined -> Desugar (Clause Desugared)
 desugarClause (Cls ps tm a) = do ps' <- mapM desugarPattern ps
-                                 tm' <- desugarTm tm
+                                 tm' <- desugarTerm tm
                                  return $ Cls ps' tm' (refToDesug a)
 
-desugarTm :: Tm Refined -> Desugar (Tm Desugared)
-desugarTm (SC x a) = SC <$> desugarSComp x <*> pure (refToDesug a)
-desugarTm (StrTm s a) = return $ StrTm s (refToDesug a)
-desugarTm (IntTm n a) = return $ IntTm n (refToDesug a)
-desugarTm (CharTm c a) = return $ CharTm c (refToDesug a)
-desugarTm (TmSeq tm1 tm2 a) = TmSeq <$> desugarTm tm1 <*> desugarTm tm2 <*> pure (refToDesug a)
-desugarTm (Use u a) = Use <$> desugarUse u <*> pure (refToDesug a)
-desugarTm (DCon d a) = DCon <$> desugarDCon d <*> pure (refToDesug a)
+desugarTerm :: Term Refined -> Desugar (Term Desugared)
+desugarTerm (SC x a) = SC <$> desugarSComp x <*> pure (refToDesug a)
+desugarTerm (StrTerm s a) = return $ StrTerm s (refToDesug a)
+desugarTerm (IntTerm n a) = return $ IntTerm n (refToDesug a)
+desugarTerm (CharTerm c a) = return $ CharTerm c (refToDesug a)
+desugarTerm (TermSeq tm1 tm2 a) = TermSeq <$> desugarTerm tm1 <*> desugarTerm tm2 <*> pure (refToDesug a)
+desugarTerm (Use u a) = Use <$> desugarUse u <*> pure (refToDesug a)
+desugarTerm (DCon d a) = DCon <$> desugarDCon d <*> pure (refToDesug a)
 
 desugarPattern :: Pattern Refined -> Desugar (Pattern Desugared)
 desugarPattern (VPat v a) = VPat <$> desugarVPat v <*> pure (refToDesug a)
@@ -246,7 +246,7 @@ desugarSComp (SComp xs a) =
 
 desugarUse :: Use Refined -> Desugar (Use Desugared)
 desugarUse (App use xs a) =
-  App <$> desugarUse use <*> mapM desugarTm xs <*> pure (refToDesug a)
+  App <$> desugarUse use <*> mapM desugarTerm xs <*> pure (refToDesug a)
 desugarUse (Op op a) = Op <$> desugarOperator op <*> pure (refToDesug a)
 desugarUse (Adapted rs t a) = Adapted <$> (mapM desugarAdaptor rs)
                                  <*> desugarUse t <*> pure (refToDesug a)
@@ -263,7 +263,7 @@ desugarOperator (CmdIdentifier x a) = return $ CmdIdentifier x (refToDesug a)
 
 desugarDCon :: DataCon Refined -> Desugar (DataCon Desugared)
 desugarDCon (DataCon id xs a) =
-  DataCon id <$> mapM desugarTm xs <*> pure (refToDesug a)
+  DataCon id <$> mapM desugarTerm xs <*> pure (refToDesug a)
 
 -- Helpers
 

@@ -30,40 +30,40 @@ refine prog = evalState (runExceptT (refine' prog)) initRefine
 refine' :: Prog Raw -> Refine (Prog Refined)
 refine' (MkProg xs) = do
   -- Make sure datatypes have unique ids
-  checkUniqueIds [d | (DataTm d _) <- xs] (errorRefDuplTopTm "datatype")
+  checkUniqueIds [d | (DataTerm d _) <- xs] (errorRefDuplTopTerm "datatype")
   -- Make sure interfaces and interface aliases have unique ids
-  checkUniqueIds ([i | i@(ItfTm _ _) <- xs] ++
-                  [i | i@(ItfAliasTm _ _) <- xs])
-    (errorRefDuplTopTm "interface/interface alias")
+  checkUniqueIds ([i | i@(ItfTerm _ _) <- xs] ++
+                  [i | i@(ItfAliasTerm _ _) <- xs])
+    (errorRefDuplTopTerm "interface/interface alias")
   -- Concretise epsilon vars
-  let (dts, itfs, itfAls) = concretiseEps [d | DataTm d _ <- xs]
-                                          [i | ItfTm i _ <- xs]
-                                          [i | ItfAliasTm i _ <- xs]
-  let hdrSigs = [s | SigTm s _ <- xs]
-  let hdrDefs = [c | ClsTm c _ <- xs]
+  let (dts, itfs, itfAls) = concretiseEps [d | DataTerm d _ <- xs]
+                                          [i | ItfTerm i _ <- xs]
+                                          [i | ItfAliasTerm i _ <- xs]
+  let hdrSigs = [s | SigTerm s _ <- xs]
+  let hdrDefs = [c | ClsTerm c _ <- xs]
   -- Initialise refinement state
   initialiseRState dts itfs itfAls hdrSigs
   -- Refine top level terms
   putTopLevelCtxt Datatype
-  dtTms <- mapM refineDataT dts
+  dtTerms <- mapM refineDataT dts
   putTopLevelCtxt Interface
-  itfTms <- mapM refineItf itfs
+  itfTerms <- mapM refineItf itfs
   putTopLevelCtxt InterfaceAlias
-  itfAlTms <- mapM refineItfAl itfAls
+  itfAlTerms <- mapM refineItfAl itfAls
   putTopLevelCtxt Handler
   hdrs <- mapM (refineMH hdrDefs) hdrSigs
   -- Check uniqueness of hdrs w.r.t builtin ones
-  -- checkUniqueIds ([h | (DefTm h _) <- hdrs] ++ builtinMultiHandlerDefinitions)
-  --   (errorRefDuplTopTm "operator")
-  return $ MkProg (map (\dt -> DataTm dt a) builtinDataTs ++ dtTms ++
-                   map (\itf -> ItfTm itf a) builtinItfs ++ itfTms ++
-                   map (\hdr -> DefTm hdr a) builtinMultiHandlerDefinitions ++ hdrs)
+  -- checkUniqueIds ([h | (DefTerm h _) <- hdrs] ++ builtinMultiHandlerDefinitions)
+  --   (errorRefDuplTopTerm "operator")
+  return $ MkProg (map (\dt -> DataTerm dt a) builtinDataTs ++ dtTerms ++
+                   map (\itf -> ItfTerm itf a) builtinItfs ++ itfTerms ++
+                   map (\hdr -> DefTerm hdr a) builtinMultiHandlerDefinitions ++ hdrs)
   where a = Refined BuiltIn
 {-# ANN refine' "HLint: ignore Avoid lambda" #-}
 
 -- Explicit refinements:
 -- + data type has unique effect & type variables
-refineDataT :: DataT Raw -> Refine (TopTm Refined)
+refineDataT :: DataT Raw -> Refine (TopTerm Refined)
 refineDataT d@(DT dt ps ctrs a) =
  --         data dt p_1 ... p_m = ctr_1 | ... | ctr_n
   if uniqueIds (map fst ps) then
@@ -75,13 +75,13 @@ refineDataT d@(DT dt ps ctrs a) =
        ctrs' <- mapM refineCtr ctrs
        putEVSet S.empty                                -- reset
        putTMap M.empty                                 -- reset
-       return $ DataTm (DT dt ps ctrs' a') a'
+       return $ DataTerm (DT dt ps ctrs' a') a'
   else throwError $ errorRefDuplParamData d
   where a' = rawToRef a
 
 -- Explicit refinements:
 -- + interface has unique effect & type variables
-refineItf :: Itf Raw -> Refine (TopTm Refined)
+refineItf :: Itf Raw -> Refine (TopTerm Refined)
 refineItf i@(Itf itf ps cmds a) =
 --        interface itf p_1 ... p_m = cmd_1 | ... | cmd_n
   if uniqueIds (map fst ps) then
@@ -93,7 +93,7 @@ refineItf i@(Itf itf ps cmds a) =
        cmds' <- mapM refineCmd cmds
        putEVSet S.empty                                -- reset
        putTMap M.empty                                 -- reset
-       return $ ItfTm (Itf itf ps cmds' a') a'
+       return $ ItfTerm (Itf itf ps cmds' a') a'
   else throwError $ errorRefDuplParamItf i
   where a' = rawToRef a
 
@@ -323,10 +323,10 @@ refineTyArg :: TyArg Raw -> Refine (TyArg Refined)
 refineTyArg (VArg t a) = VArg <$> refineVType t <*> pure (rawToRef a)
 refineTyArg (EArg ab a) = EArg <$> refineAb ab <*> pure (rawToRef a)
 
-refineMH :: [MHCls Raw] -> MultiHandlerSignature Raw -> Refine (TopTm Refined)
+refineMH :: [MHCls Raw] -> MultiHandlerSignature Raw -> Refine (TopTerm Refined)
 refineMH xs (Sig id ty a) = do cs <- mapM refineMHCls ys
                                ty' <- refineCType ty
-                               return $ DefTm (Def id ty' cs a') a'
+                               return $ DefTerm (Def id ty' cs a') a'
   where ys = filter (\(MHCls id' _ _) -> id' == id) xs
         a' = rawToRef a
 
@@ -341,7 +341,7 @@ refineMHCls (MHCls _ cls a) = refineClause cls
 -- + applications (MkRawComb) are refined same way as ids
 -- + let x = e1 in e2    -->   case e1 {x -> e2}
 -- + [x, y, z]           -->   x cons (y cons (z cons nil))
-refineUse :: Use Raw -> Refine (Either (Use Refined) (Tm Refined))
+refineUse :: Use Raw -> Refine (Either (Use Refined) (Term Refined))
 refineUse (RawIdentifier id a) =
   do ctrs <- getRCtrs
      cmds <- getRCmds
@@ -362,7 +362,7 @@ refineUse (RawIdentifier id a) =
                 Nothing -> return $ Left $ Op (Mono id a') a'
   where a' = rawToRef a
 refineUse (RawComb (RawIdentifier id b) xs a) =
-  do xs' <- mapM refineTm xs
+  do xs' <- mapM refineTerm xs
      ctrs <- getRCtrs
      cmds <- getRCmds
      hdrs <- getRMHs
@@ -383,7 +383,7 @@ refineUse (RawComb (RawIdentifier id b) xs a) =
 refineUse (RawComb x xs a) =
   do x' <- refineUse x
      case x' of
-       Left use -> do xs' <- mapM refineTm xs
+       Left use -> do xs' <- mapM refineTerm xs
                       return $ Left $ App use xs' (rawToRef a)
        Right tm -> throwError $ errorRefExpectedUse tm
 refineUse (Adapted rs t a) =
@@ -412,32 +412,32 @@ refineAdaptor adp@(RawAdp x liat left right a) = do
       throwError "adaptor error"
   else throwError $ errorRefIdNotDeclared "interface" x a
 
-refineTm :: Tm Raw -> Refine (Tm Refined)
-refineTm (Let x t1 t2 a) =
-  do s1 <- refineTm t1
-     s2 <- refineTm $ SC (SComp [Cls [VPat (VarPat x a) a] t2 a] a) a
+refineTerm :: Term Raw -> Refine (Term Refined)
+refineTerm (Let x t1 t2 a) =
+  do s1 <- refineTerm t1
+     s2 <- refineTerm $ SC (SComp [Cls [VPat (VarPat x a) a] t2 a] a) a
      return $ Use (App (Op (Poly "case" a') a') [s1, s2] a') a'
   where a' = rawToRef a
-refineTm (SC x a) = do x' <- refineSComp x
-                       return $ SC x' (rawToRef a)
-refineTm (StrTm x a) = return $ StrTm x (rawToRef a)
-refineTm (IntTm x a) = return $ IntTm x (rawToRef a)
-refineTm (CharTm x a) = return $ CharTm x (rawToRef a)
-refineTm (ListTm ts a) =
-  do ts' <- mapM refineTm ts
+refineTerm (SC x a) = do x' <- refineSComp x
+                         return $ SC x' (rawToRef a)
+refineTerm (StrTerm x a) = return $ StrTerm x (rawToRef a)
+refineTerm (IntTerm x a) = return $ IntTerm x (rawToRef a)
+refineTerm (CharTerm x a) = return $ CharTerm x (rawToRef a)
+refineTerm (ListTerm ts a) =
+  do ts' <- mapM refineTerm ts
      return $
        foldr
          (\x y -> DCon (DataCon "cons" [x, y] a') a')
          (DCon (DataCon "nil" [] a') a')
          ts'
   where a' = rawToRef a
-refineTm (TmSeq t1 t2 a) = do t1' <- refineTm t1
-                              t2' <- refineTm t2
-                              return $ TmSeq t1' t2' (rawToRef a)
-refineTm (Use u a) = do u' <- refineUse u
-                        case u' of
-                          Left use -> return $ Use use (rawToRef a)
-                          Right tm -> return tm
+refineTerm (TermSeq t1 t2 a) = do t1' <- refineTerm t1
+                                  t2' <- refineTerm t2
+                                  return $ TermSeq t1' t2' (rawToRef a)
+refineTerm (Use u a) = do u' <- refineUse u
+                          case u' of
+                            Left use -> return $ Use use (rawToRef a)
+                            Right tm -> return tm
 
 refineSComp :: SComp Raw -> Refine (SComp Refined)
 refineSComp (SComp xs a) = do xs' <- mapM refineClause xs
@@ -445,7 +445,7 @@ refineSComp (SComp xs a) = do xs' <- mapM refineClause xs
 
 refineClause :: Clause Raw -> Refine (Clause Refined)
 refineClause (Cls ps tm a) = do ps' <- mapM refinePattern ps
-                                tm' <- refineTm tm
+                                tm' <- refineTerm tm
                                 return $ Cls ps' tm' (rawToRef a)
 
 -- Explicit refinements:
@@ -647,7 +647,7 @@ addItfAlias m (ItfAlias x ps itfMap a) = return $ M.insert x (ps, itfMap) m
 addDataT :: DataTypeMap -> DataT Raw -> Refine DataTypeMap
 addDataT m (DT x ps _ a) =
   if M.member x m then
-    throwError $ errorRefDuplTopTm "datatype" x (getSource a)
+    throwError $ errorRefDuplTopTerm "datatype" x (getSource a)
   else return $ M.insert x ps m
 
 addCtr :: [IPair] -> Ctr a -> Refine [IPair]
