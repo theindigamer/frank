@@ -1,6 +1,6 @@
-{-# LANGUAGE GeneralizedNewtypeDeriving,StandaloneDeriving #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE FlexibleInstances,UndecidableInstances #-}
+{-# LANGUAGE FlexibleInstances, UndecidableInstances #-}
 module FreshNames where
 
 import Control.Monad.State

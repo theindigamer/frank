@@ -34,7 +34,7 @@ substitItfAls = substitItfAls' [] where
 --                                if 2), set t_{n+1} := [£]
           do evset <- getEVSet
              ctx <- getTopLevelCtxt
-             let ts' = if "£" `S.member` evset || isHdrCtxt ctx
+             let ts' = if "£" `S.member` evset || isHeaderContext ctx
                        then concretiseEpsArg ps ts (Raw Implicit)
                        else ts
              checkArgs x (length ps) (length ts') (Raw Generated) -- TODO: LC: Fix annotation
@@ -78,7 +78,7 @@ substitInVType subst (DTTy x ts a) = do
   ctx <- getTopLevelCtxt
   case (not (M.member x dtm) && -- Check if id really is type variable
         null ts &&
-        (isHdrCtxt ctx ||
+        (isHeaderContext ctx ||
          M.member x tmap), substLookupVT subst x) of -- if so, then substitute
     (True, Just y) -> return y     -- TODO: LC: Right annotation assigned?
     _              -> do ts' <- mapM (substitInTyArg subst) ts

@@ -21,7 +21,7 @@ type EVarSet = S.Set Identifier
 -- generic object-int pair
 type IPair = (Identifier, Int)
 -- data type id is mapped to rigid data type (RDT) variables (for polymorphic data types)
-type DTMap = M.Map Identifier [(Identifier, Kind)]                      -- dt-id     -> [ty-vars]
+type DataTypeMap = M.Map Identifier [(Identifier, Kind)]                      -- dt-id     -> [ty-vars]
 type IFMap = M.Map Identifier [(Identifier, Kind)]                      -- itf-id    -> [ty-vars]
 type IFAliasesMap = M.Map Identifier ([(Identifier, Kind)], ItfMap Raw) -- itf-al-id -> ([ty-vars], itf's -> itf-instant's)
 
@@ -30,7 +30,7 @@ data TopLevelCtxt = Interface | InterfaceAlias | Datatype | Handler
 
 data RState = MkRState { interfaces :: IFMap
                        , interfaceAliases :: IFAliasesMap
-                       , datatypes :: DTMap
+                       , datatypes :: DataTypeMap
                        , handlers :: [IPair]              -- handler Id -> # of arguments
                        , ctrs :: [IPair]                  -- constructor Id -> # of arguments
                        , cmds :: [IPair]                  -- command Id -> # of arguments
@@ -49,69 +49,60 @@ putRItfs xs = do s <- getRState
                  putRState $ s { interfaces = xs }
 
 getRItfs :: Refine IFMap
-getRItfs = do s <- getRState
-              return $ interfaces s
+getRItfs = interfaces <$> getRState
 
 putRItfAliases :: IFAliasesMap -> Refine ()
 putRItfAliases xs = do s <- getRState
                        putRState $ s {interfaceAliases = xs }
 
 getRItfAliases :: Refine IFAliasesMap
-getRItfAliases = do s <- getRState
-                    return $ interfaceAliases s
+getRItfAliases = interfaceAliases <$> getRState
 
-putRDTs :: DTMap -> Refine ()
+putRDTs :: DataTypeMap -> Refine ()
 putRDTs m = do s <- getRState
                putRState $ s { datatypes = m }
 
 -- get rigid data types
-getRDTs :: Refine DTMap
-getRDTs = do s <- getRState
-             return $ datatypes s
+getRDTs :: Refine DataTypeMap
+getRDTs = datatypes <$> getRState
 
 putRCtrs :: [IPair] -> Refine ()
 putRCtrs xs = do s <- getRState
                  putRState $ s { ctrs = xs }
 
 getRCtrs :: Refine [IPair]
-getRCtrs = do s <- getRState
-              return $ ctrs s
+getRCtrs = ctrs <$> getRState
 
 putRCmds :: [IPair] -> Refine ()
 putRCmds xs = do s <- getRState
                  putRState $ s { cmds = xs }
 
 getRCmds :: Refine [IPair]
-getRCmds = do s <- getRState
-              return $ cmds s
+getRCmds = cmds <$> getRState
 
 putRMHs :: [IPair] -> Refine ()
 putRMHs xs = do s <- getRState
                 putRState $ s { handlers = xs }
 
 getRMHs :: Refine [IPair]
-getRMHs = do s <- getRState
-             return $ handlers s
+getRMHs = handlers <$> getRState
 
 putTMap :: TVarMap -> Refine ()
 putTMap m = do s <- getRState
                putRState $ s { tmap = m }
 
 getTMap :: Refine TVarMap
-getTMap = do s <- getRState
-             return $ tmap s
+getTMap = tmap <$> getRState
 
 putEVSet :: EVarSet -> Refine ()
 putEVSet m = do s <- getRState
                 putRState $ s { evmap = m }
 
 getEVSet :: Refine EVarSet
-getEVSet = do s <- getRState
-              return $ evmap s
+getEVSet = evmap <$> getRState
 
 getTopLevelCtxt :: Refine (Maybe TopLevelCtxt)
-getTopLevelCtxt = do s <- getRState
-                     return $ tlctxt s
+getTopLevelCtxt = tlctxt <$> getRState
 
 putTopLevelCtxt :: TopLevelCtxt -> Refine ()
 putTopLevelCtxt ctxt = do s <- getRState
@@ -119,9 +110,9 @@ putTopLevelCtxt ctxt = do s <- getRState
 
 {- Helper functions -}
 
-isHdrCtxt :: Maybe TopLevelCtxt -> Bool
-isHdrCtxt (Just Handler) = True
-isHdrCtxt _              = False
+isHeaderContext :: Maybe TopLevelCtxt -> Bool
+isHeaderContext (Just Handler) = True
+isHeaderContext _              = False
 
 -- Check if ids are unique, if not throw error using the function "f"
 checkUniqueIds :: (HasIdentifier a, HasSource a) => [a] -> (Identifier -> Source -> String) ->
@@ -134,5 +125,4 @@ checkUniqueIds xs f =
                                                  else (ident : ys, Nothing)
                                           else ([], mErr))
                         ([], Nothing) xs
-  in case mErr of Nothing -> return ()
-                  Just err -> throwError err
+  in forM_ mErr throwError

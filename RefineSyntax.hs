@@ -1,3 +1,5 @@
+{-# LANGUAGE LambdaCase #-}
+
 module RefineSyntax where
 
 import Control.Monad
@@ -28,7 +30,7 @@ refine prog = evalState (runExceptT (refine' prog)) initRefine
 refine' :: Prog Raw -> Refine (Prog Refined)
 refine' (MkProg xs) = do
   -- Make sure datatypes have unique ids
-  checkUniqueIds ([d | (DataTm d _) <- xs]) (errorRefDuplTopTm "datatype")
+  checkUniqueIds [d | (DataTm d _) <- xs] (errorRefDuplTopTm "datatype")
   -- Make sure interfaces and interface aliases have unique ids
   checkUniqueIds ([i | i@(ItfTm _ _) <- xs] ++
                   [i | i@(ItfAliasTm _ _) <- xs])
@@ -57,6 +59,7 @@ refine' (MkProg xs) = do
                    map (\itf -> ItfTm itf a) builtinItfs ++ itfTms ++
                    map (\hdr -> DefTm hdr a) builtinMultiHandlerDefinitions ++ hdrs)
   where a = Refined BuiltIn
+{-# ANN refine' "HLint: ignore Avoid lambda" #-}
 
 -- Explicit refinements:
 -- + data type has unique effect & type variables
@@ -172,7 +175,7 @@ refineAb ab@(Ab v mp@(ItfMap m _) a) =
        (EmpAb b) -> do m' <- refineItfMap mp
                        return $ Ab (EmpAb (rawToRef b)) m' a'
        (AbVar x b) ->
-         if x `S.member` evset || isHdrCtxt ctx then
+         if x `S.member` evset || isHeaderContext ctx then
             do m' <- refineItfMap mp
                return $ Ab (AbVar x (rawToRef b)) m' a'
          else throwError $ errorRefIdNotDeclared "effect type variable" x a
@@ -199,27 +202,26 @@ refineAdj (ConsAdj x ts a) = do
   tss' <- refineItfInst a (x, ts)
   let tss'' = M.foldlWithKey (\acc itf ts' -> acc ++ instsToAdjs itf ts') [] tss'
   --LAST STOP
-  return $ tss''
+  pure tss''
   where instsToAdjs :: Identifier -> Bwd [TyArg Refined] -> [Adjustment Refined]
         instsToAdjs itf ts = map (\ts' -> ConsAdj itf ts' (rawToRef a)) (bwd2fwd ts)
 refineAdj (AdaptorAdj adp a) = do
   adp' <- refineAdaptor adp
-  return $ [AdaptorAdj adp' (rawToRef a)]
+  pure [AdaptorAdj adp' (rawToRef a)]
 
 -- Explicit refinements:
 -- + interface aliases are substituted
 refineItfInst :: Raw -> (Identifier, [TyArg Raw]) ->
                  Refine (M.Map Identifier (Bwd [TyArg Refined]))
 refineItfInst a (x, ts) = do
---                  x t_11 ... t_1n
+  --                  x t_11 ... t_1n
   -- replace interface aliases by interfaces
-  m' <- substitItfAls (x, ts) >>= \i -> case i of
+  m' <- substitItfAls (x, ts) >>= \case
     ItfMap m _ -> pure m
     _ -> throwError "Expected ItfMap but found something else."
---                  x t_11 ... t_1n, ..., x t_m1 t_mn
+  --                  x t_11 ... t_1n, ..., x t_m1 t_mn
   -- refine instantiations of each interface
-  m'' <- M.fromList <$> (mapM (refineItfInsts a)) (M.toList m')
-  return m''
+  M.fromList <$> mapM (refineItfInsts a) (M.toList m')
 
 -- Explicit refinements:
 -- + interface aliases are substituted
@@ -229,7 +231,7 @@ refineItfMap (ItfMap m a) = do
   ms <- mapM (\(x, insts) -> mapM (\inst -> substitItfAls (x, inst)) (bwd2fwd insts)) (M.toList m)
   let (ItfMap m' a') = foldl plusItfMap (emptyItfMap a) (concat ms)
   -- refine instantiations of each interface
-  m'' <- M.fromList <$> (mapM (refineItfInsts a)) (M.toList m')
+  m'' <- M.fromList <$> mapM (refineItfInsts a) (M.toList m')
   return $ ItfMap m'' (rawToRef a)
 
 refineItfInsts :: Raw -> (Identifier, Bwd [TyArg Raw]) ->
@@ -247,7 +249,7 @@ refineItfInsts a (x, insts) = do
        ctx <- getTopLevelCtxt
        insts' <- mapM (\ts -> do let a' = Raw (implicitNear a)
                                  let ts' = if "£" `S.member` evset ||
-                                              isHdrCtxt ctx
+                                              isHeaderContext ctx
                                            then concretiseEpsArg ps ts a'
                                            else ts
                                  checkArgs x (length ps) (length ts') a
@@ -279,7 +281,7 @@ refineVType (DTTy x ts a) =
        Just ps -> do
 --       data x p_1 ... p_n
          let a' = Raw (implicitNear a)
-         let ts' = if "£" `S.member` evset || isHdrCtxt ctx
+         let ts' = if "£" `S.member` evset || isHeaderContext ctx
                    then concretiseEpsArg ps ts a'
                    else ts
          checkArgs x (length ps) (length ts') a
@@ -287,11 +289,11 @@ refineVType (DTTy x ts a) =
          return $ DTTy x ts'' (rawToRef a)
        Nothing ->
          if null ts &&          -- there must be no arguments to ty var
-            (isHdrCtxt ctx ||   -- x can be implic. ty var in hdr sign.
+            (isHeaderContext ctx ||   -- x can be implic. ty var in hdr sign.
              x `M.member` tmap)    -- x can be in val ty contexts
          then return $ TVar x (rawToRef a)
          else throwError $ errorRefIdNotDeclared "value type variable" x a
-refineVType (SCTy ty a) = refineCType ty >>= return . swap SCTy (rawToRef a)
+refineVType (SCTy ty a) = swap SCTy (rawToRef a) <$> refineCType ty
 refineVType (TVar x a) =
   do -- Check that x is intro'd ty-var or datatype or just-implicitly intro'd ty var
      tmap <- getTMap
@@ -310,7 +312,7 @@ refineVType (TVar x a) =
               return $ DTTy x ts' (rawToRef a)
          Nothing ->
            -- last possibility: x can be implic. ty var in hdr sign.
-           if isHdrCtxt ctx
+           if isHeaderContext ctx
            then return $ TVar x (rawToRef a)
            else throwError $ errorRefIdNotDeclared "value type variable" x a
 refineVType (StringTy a) = return $ StringTy (rawToRef a)
@@ -407,7 +409,7 @@ refineAdaptor adp@(RawAdp x liat left right a) = do
         if any isNothing rightNs then throwError "adaptor error"
         else return $ Adp x (Just (length left)) (map fromJust rightNs) (rawToRef a)
     else
-      throwError $ "adaptor error"
+      throwError "adaptor error"
   else throwError $ errorRefIdNotDeclared "interface" x a
 
 refineTm :: Tm Raw -> Refine (Tm Refined)
@@ -450,7 +452,7 @@ refineClause (Cls ps tm a) = do ps' <- mapM refinePattern ps
 -- + command patterns (e.g. <send x -> k>) must refer to existing command and
 --   match # of args
 refinePattern :: Pattern Raw -> Refine (Pattern Refined)
-refinePattern (VPat p a) = VPat <$> refineVPat p <*> (pure $ rawToRef a)
+refinePattern (VPat p a) = VPat <$> refineVPat p <*> pure (rawToRef a)
 refinePattern (CmdPat x n ps k a) =
   do cmds <- getRCmds
      case x `findPair` cmds of
@@ -586,7 +588,7 @@ builtinMHs :: [IPair]
 builtinMHs = map add builtinMultiHandlerDefinitions
   where add (Def x (CType ps _ a) _ _) = (x,length ps)
 
-builtinDTs :: DTMap
+builtinDTs :: DataTypeMap
 builtinDTs = foldl add M.empty builtinDataTs
   where add m (DT id ps _ a) = M.insert id ps m
 
@@ -642,7 +644,7 @@ addItf m (Itf x ps _ a) = return $ M.insert x ps m
 addItfAlias :: IFAliasesMap -> ItfAlias Raw -> Refine IFAliasesMap
 addItfAlias m (ItfAlias x ps itfMap a) = return $ M.insert x (ps, itfMap) m
 
-addDataT :: DTMap -> DataT Raw -> Refine DTMap
+addDataT :: DataTypeMap -> DataT Raw -> Refine DataTypeMap
 addDataT m (DT x ps _ a) =
   if M.member x m then
     throwError $ errorRefDuplTopTm "datatype" x (getSource a)

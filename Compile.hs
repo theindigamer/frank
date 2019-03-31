@@ -1,5 +1,4 @@
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE ViewPatterns #-}
 
 -- Compile Frank to Shonky
 module Compile where
@@ -21,14 +20,14 @@ import Debug
 
 import BwdFwd
 
-testShonky =
-  unlines $
+testShonky = unlines
   [ "evalstate(,get put):"
   , "evalstate(x,y) -> y,"
   , "evalstate(x,{'get() -> k}) -> evalstate(x,k(x)),"
   , "evalstate(x,{'put(y) -> k}) -> evalstate(y,k([]))"
   , "main():"
-  , "main() -> evalstate([|hello|], 'put(['get(),[|world|]]);'get())"]
+  , "main() -> evalstate([|hello|], 'put(['get(),[|world|]]);'get())"
+  ]
 
 type Compile = State CState
 
@@ -47,16 +46,14 @@ putCState :: CState -> Compile ()
 putCState = put
 
 getCCmds :: Identifier -> Compile [Identifier]
-getCCmds itf = do s <- getCState
-                  return $ M.findWithDefault [] itf (imap s)
+getCCmds itf = M.findWithDefault [] itf . imap <$> getCState
 
 addAtom :: Identifier -> Compile ()
 addAtom id = do s <- getCState
                 putCState $ s { atoms = S.insert id (atoms s) }
 
 isAtom :: Identifier -> Compile Bool
-isAtom id = do s <- getCState
-               return $ S.member id (atoms s)
+isAtom ident = S.member ident . atoms <$> getCState
 
 compileToFile :: Prog Desugared -> String -> IO ()
 compileToFile p dst = writeFile (dst ++ ".uf") (show $ ppProgShonky $ compile p)
@@ -78,9 +75,10 @@ initialiseItfMap st xs = st { imap = foldl f (imap st) xs }
 
 compileTopTm :: TopTm Desugared -> Compile [S.Def S.Exp]
 compileTopTm (DataTm x _) = compileDatatype x
-compileTopTm (DefTm x@(Def id _ _ _) _) =
-  if isBuiltin id then return []  else do def <- compileMultiHandlerDefinition x
-                                          return $ [def]
+compileTopTm (DefTm x@(Def ident _ _ _) _) =
+  if isBuiltin ident
+  then return []
+  else (:[]) <$> compileMultiHandlerDefinition x
 compileTopTm _ = return [] -- interfaces are ignored for now. add to a map?
 
 -- a constructor is then just a cons cell of its arguments
@@ -97,14 +95,14 @@ compileDatatype (DT _ _ xs _) = mapM compileCtr xs
 -- nonNullary [] = return []
 
 compileCtr :: Ctr Desugared -> Compile (S.Def S.Exp)
-compileCtr (Ctr id [] _) = return $ S.DF id [] [([], S.EA id S.:& S.EA "")]
-compileCtr (Ctr id ts _) =
-  let f x n = x ++ (show n) in
-  let xs = take (length ts) $ repeat "x" in
+compileCtr (Ctr ident [] _) = return $ S.DF ident [] [([], S.EA ident S.:& S.EA "")]
+compileCtr (Ctr ident ts _) =
+  let f x n = x ++ show n in
+  let xs = replicate (length ts) "x" in
   let xs' = zipWith f xs [1..] in
   let args = map (S.PV . S.VPV) xs' in
-  let e = foldr1 (S.:&) $ (S.EA id) : (map S.EV xs' ++ [S.EA ""]) in
-  return $ S.DF id [] [(args, e)]
+  let e = foldr1 (S.:&) $ S.EA ident : (map S.EV xs' ++ [S.EA ""]) in
+  return $ S.DF ident [] [(args, e)]
 
 -- use the type to generate the signature of commands handled
 -- generate a clause 1-to-1 correspondence
@@ -123,7 +121,7 @@ compilePort p@(Port adjs _ _) =
      -- convert insts into list of commands
      let insts' = M.mapWithKey (\i insts ->
                                 replicate ((length . bwd2fwd) insts) i) insts
-     cmds <- liftM concat $ mapM getCCmds (concat (M.elems insts'))
+     cmds <- concat <$> mapM getCCmds (concat (M.elems insts'))
      -- convert renamings into list of Adap
      let (ids, rens) = unzip (M.assocs adps)   -- (id, ren)
      rencmds <- mapM getCCmds ids
@@ -145,12 +143,12 @@ compilePattern (ThkPat id _) = return $ S.PT id
 -- with "cons" and "nil" constructors.
 
 compileVPat :: ValuePat Desugared -> Compile S.VPat
-compileVPat (VarPat id _) = return $ S.VPV id
-compileVPat (DataPat id xs _) =
-  do case xs of
-       []  -> return $ S.VPA id S.:&: S.VPA ""
-       xs -> do xs' <- mapM compileVPat xs
-                return $ foldr1 (S.:&:) $ (S.VPA id) : (xs' ++ [S.VPA ""])
+compileVPat (VarPat ident _) = return $ S.VPV ident
+compileVPat (DataPat ident xs _) =
+  case xs of
+    []  -> return $ S.VPA ident S.:&: S.VPA ""
+    xs -> do xs' <- mapM compileVPat xs
+             return $ foldr1 (S.:&:) $ S.VPA ident : (xs' ++ [S.VPA ""])
 compileVPat (IntPat n _) = return $ S.VPI n
 compileVPat ((StrPat s a) :: ValuePat Desugared) = compileVPat (compileStrPat s) where
   compileStrPat :: String -> ValuePat Desugared
@@ -188,7 +186,7 @@ compileAdaptor adp@(CompilableAdp x m ns _) = do
 
 compileDataCon :: DataCon Desugared -> Compile S.Exp
 compileDataCon (DataCon id xs _) = do xs' <- mapM compileTm xs
-                                      return $ (S.EV id) S.:$ xs'
+                                      return (S.EV id S.:$ xs')
 
 compileSComp :: SComp Desugared -> Compile S.Exp
 compileSComp (SComp xs _) = S.EF <$> pure [([], [])] <*> mapM compileClause xs

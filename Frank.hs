@@ -16,6 +16,7 @@ import Control.Monad
 import Data.IORef
 import qualified Data.Map.Strict as M
 import Data.List
+import Data.Maybe (fromMaybe)
 
 import System.Console.CmdArgs.Explicit
 import System.Directory
@@ -29,7 +30,7 @@ type PMap = M.Map FilePath (Prog Raw)
 
 -- Function checks whether or not a main function exists in the program
 existsMain :: Prog t -> Bool
-existsMain (MkProg xs) = any (== "main") [id | DefTm (Def id _ _ _) _ <- xs]
+existsMain (MkProg xs) = "main" `elem` [ident | DefTm (Def ident _ _ _) _ <- xs]
 
 splice :: Prog Raw -> Tm Raw -> Prog Raw
 splice (MkProg xs) tm = MkProg $ xs ++ ys
@@ -73,7 +74,7 @@ parseProg fileName args =
         pProg (Left msg) _ = return $ Left msg
         pProg (Right map) fname | M.member fname map = return $ Right map
         pProg (Right map) fname =
-          let ext = if isSuffixOf ".fk" fname then "" else ".fk" in
+          let ext = if ".fk" `isSuffixOf` fname then "" else ".fk" in
           do m <- parseFile (fname ++ ext) incPaths
              case m of
                Left msg -> return $ Left msg
@@ -83,9 +84,7 @@ parseProg fileName args =
         combine xs (MkProg ys) = xs ++ ys
 
         incPaths :: [String]
-        incPaths = case lookup "inc" args of
-          Just xs -> xs
-          Nothing -> []
+        incPaths = fromMaybe [] (lookup "inc" args)
 
         parseFile :: String -> [FilePath] ->
                      IO (Either String (Prog Raw,[String]))
@@ -94,7 +93,7 @@ parseProg fileName args =
              case m of
                Nothing ->
                  die ("could not find " ++ name ++
-                      " in search path:" ++ (concat $ intersperse "," fs))
+                      " in search path:" ++ intercalate "," fs)
                Just x -> runTokenProgParse <$> readFile x
           where g :: Maybe FilePath -> FilePath -> IO (Maybe FilePath)
                 g Nothing x = do b <- doesFileExist x
@@ -143,10 +142,10 @@ compileProg progName p args =
 evalProg :: Shonky.Env -> String -> IO ()
 evalProg env tm =
   case Shonky.try env tm of
-    Shonky.Ret v -> putStrLn $ (show . Shonky.ppVal) v
+    Shonky.Ret v -> print (Shonky.ppVal v)
     comp -> do -- putStrLn $ "Generated computation: " ++ show comp
                v <- Shonky.ioHandler comp
-               putStrLn $ (show . Shonky.ppVal) v
+               print (Shonky.ppVal v)
 
 compileAndRunProg :: String -> Args -> IO ()
 compileAndRunProg fileName args =
