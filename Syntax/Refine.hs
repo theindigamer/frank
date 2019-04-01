@@ -13,9 +13,12 @@ import Data.Maybe
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 
+import qualified Syntax.AbilityMode as AbilityMode
+import qualified Syntax.Adaptor as Adaptor
+
 import BwdFwd
 import Syntax
-import RefineSyntaxCommon
+import Syntax.Refine.Common
 import Syntax.Refine.ConcretiseEps
 import Syntax.Refine.SubstituteInterfaceAliases
 import Debug
@@ -166,19 +169,19 @@ refinePeg (Peg ab ty a) = do ab' <- refineAb ab
                              ty' <- refineValueType ty
                              return $ Peg ab' ty' (rawToRef a)
 
-refineAb :: Ab Raw -> Refine (Ab Refined)
-refineAb ab@(Ab v mp@(InterfaceMap m _) a) =
+refineAb :: Ability Raw -> Refine (Ability Refined)
+refineAb ab@(MkAbility v mp@(InterfaceMap m _) a) =
 --       [v | itf_1 x_11 ... x_1k, ..., itf_l x_l1 ... x_ln]
   do -- Check that v has been introduced before or is now implicitly introduced
      evset <- getEVSet
      ctx <- getTopLevelCtxt
      case v of
-       (EmpAb b) -> do m' <- refineInterfaceMap mp
-                       return $ Ab (EmpAb (rawToRef b)) m' a'
-       (AbVar x b) ->
+       (AbilityMode.Empty b) -> do m' <- refineInterfaceMap mp
+                                   return $ MkAbility (AbilityMode.Empty (rawToRef b)) m' a'
+       (AbilityMode.Var x b) ->
          if x `S.member` evset || isHeaderContext ctx then
             do m' <- refineInterfaceMap mp
-               return $ Ab (AbVar x (rawToRef b)) m' a'
+               return $ MkAbility (AbilityMode.Var x (rawToRef b)) m' a'
          else throwError $ errorRefIdNotDeclared "effect type variable" x a
   where a' = rawToRef a
 
@@ -194,9 +197,9 @@ getIntroducedEVars (InterfaceMap m _) = do
   case errors of []             -> return $ map fst candidates
                  ((itf, _) : _) -> throwError $ errorRefEffVarNoParams itf
 
-refineAbMod :: AbMod Raw -> AbMod Refined
-refineAbMod (EmpAb a) = EmpAb (rawToRef a)
-refineAbMod (AbVar x a) = AbVar x (rawToRef a)
+refineAbMod :: AbilityMode Raw -> AbilityMode Refined
+refineAbMod (AbilityMode.Empty a) = AbilityMode.Empty (rawToRef a)
+refineAbMod (AbilityMode.Var x a) = AbilityMode.Var x (rawToRef a)
 
 refineAdj :: Adjustment Raw -> Refine [Adjustment Refined]
 refineAdj (ConsAdj x ts a) = do
@@ -306,7 +309,7 @@ refineValueType (TVar x a) =
          Just ps ->
            -- if the data type is parameterised by a single eff var then instantiate it to [£|]
            do let ts = case ps of
-                         [(_, ET)] -> [EArg (Ab (AbVar "£" a) (InterfaceMap M.empty a) a) a]
+                         [(_, ET)] -> [EArg (MkAbility (AbilityMode.Var "£" a) (InterfaceMap M.empty a) a) a]
                          _ -> []
               checkArgs x (length ps) (length ts) a
               ts' <- mapM refineTypeArg ts
@@ -398,19 +401,19 @@ refineUse (Adapted rs t a) =
        Right tm -> throwError $ errorRefExpectedUse tm
 
 refineAdaptor :: Adaptor Raw -> Refine (Adaptor Refined)
-refineAdaptor adp@(RawAdp x liat left right a) = do
+refineAdaptor adp@(Adaptor.Raw x liat left right a) = do
   itfCx <- getRInterfaces
   if x `M.member` itfCx then
     -- TODO: LC: left-hand side must consist of distinct names
     -- Check whether first element of right-hand side is liat
     if null right || head right == liat then
-      if null right then return $ Adp x Nothing [] (rawToRef a)
+      if null right then return $ Adaptor.Adp x Nothing [] (rawToRef a)
       else
         let mm = Just (length left) in
         let right' = tail right in
         let rightNs = map (\p -> elemIndex p (reverse left)) right' in
         if any isNothing rightNs then throwError "adaptor error"
-        else return $ Adp x (Just (length left)) (map fromJust rightNs) (rawToRef a)
+        else return $ Adaptor.Adp x (Just (length left)) (map fromJust rightNs) (rawToRef a)
     else
       throwError "adaptor error"
   else throwError $ errorRefIdNotDeclared "interface" x a
@@ -519,12 +522,12 @@ initialiseRState dts itfs itfAls hdrs =
 makeIntBinOp :: Refined -> Char -> MultiHandlerDefinition Refined
 makeIntBinOp a c = MkDef [c] (CompType [Port [] (IntTy a) a
                                   ,Port [] (IntTy a) a]
-                                  (Peg (Ab (AbVar "£" a) (InterfaceMap M.empty a) a) (IntTy a) a) a) [] a
+                                  (Peg (MkAbility (AbilityMode.Var "£" a) (InterfaceMap M.empty a) a) (IntTy a) a) a) [] a
 
 makeIntBinCmp :: Refined -> Char -> MultiHandlerDefinition Refined
 makeIntBinCmp a c = MkDef [c] (CompType [Port [] (IntTy a) a
                                    ,Port [] (IntTy a) a]
-                             (Peg (Ab (AbVar "£" a) (InterfaceMap M.empty a) a)
+                             (Peg (MkAbility (AbilityMode.Var "£" a) (InterfaceMap M.empty a) a)
                               (DTTy "Bool" [] a) a) a) [] a
 
 {-- The initial state for the refinement pass. -}
@@ -566,14 +569,14 @@ builtinMultiHandlerDefinitions = map (makeIntBinOp (Refined BuiltIn)) "+-" ++
 charEq :: MultiHandlerDefinition Refined
 charEq = MkDef "eqc" (CompType [Port [] (CharTy a) a
                           ,Port [] (CharTy a) a]
-                          (Peg (Ab (AbVar "£" a) (InterfaceMap M.empty a) a)
+                          (Peg (MkAbility (AbilityMode.Var "£" a) (InterfaceMap M.empty a) a)
                                (DTTy "Bool" [] a) a) a) [] a
   where a = Refined BuiltIn
 
 alphaNumPred :: MultiHandlerDefinition Refined
 alphaNumPred = MkDef "isAlphaNum"
                (CompType [Port [] (CharTy a) a]
-                          (Peg (Ab (AbVar "£" a) (InterfaceMap M.empty a) a)
+                          (Peg (MkAbility (AbilityMode.Var "£" a) (InterfaceMap M.empty a) a)
                                (DTTy "Bool" [] a) a) a) [] a
   where a = Refined BuiltIn
 
@@ -584,8 +587,8 @@ caseDef = MkDef
             [Port [] (TVar "X" b) b
             ,Port []
              (SCTy (CompType [Port [] (TVar "X" b) b]
-                      (Peg (Ab (AbVar "£" b) (InterfaceMap M.empty b) b) (TVar "Y" b) b) b) b) b]
-            (Peg (Ab (AbVar "£" b) (InterfaceMap M.empty b) b) (TVar "Y" b) b) b)
+                      (Peg (MkAbility (AbilityMode.Var "£" b) (InterfaceMap M.empty b) b) (TVar "Y" b) b) b) b) b]
+            (Peg (MkAbility (AbilityMode.Var "£" b) (InterfaceMap M.empty b) b) (TVar "Y" b) b) b)
           [MkClause
             [VPat (VarPat "x" b) b, VPat (VarPat "f" b) b]
             (Use (App (Op (Mono "f" b) b) [Use (Op (Mono "x" b) b) b] b) b) b] b

@@ -1,6 +1,8 @@
-{-# LANGUAGE FlexibleInstances,StandaloneDeriving,
-             MultiParamTypeClasses,GeneralizedNewtypeDeriving #-}
-module TypeCheckCommon where
+{-# LANGUAGE FlexibleInstances,
+             MultiParamTypeClasses,
+             StandaloneDeriving, GeneralizedNewtypeDeriving #-}
+
+module TypeCheck.Common where
 
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
@@ -14,6 +16,7 @@ import Control.Monad.State hiding (modify)
 import BwdFwd
 import FreshNames
 import Syntax
+import qualified Syntax.AbilityMode as AbilityMode
 
 newtype Contextual a = Contextual
                        { unCtx :: StateT TCState (FreshMT (Except String)) a}
@@ -34,7 +37,7 @@ type CtrInfoMap = M.Map Identifier (Identifier, [TypeArg Desugared], [ValueType 
 
 data TCState = MkTCState
   { ctx :: Context
-  , amb :: Ab Desugared     -- current ambient
+  , amb :: Ability Desugared     -- current ambient
   , cmdMap :: IdCmdInfoMap  -- cmd-id -> (itf-id, itf-ty-vars, cmd-arg-tys, cmd-ret-ty)
   , ctrMap :: CtrInfoMap    -- ctr-id -> (dt-id, dt-ty-vars, cmd-arg-tys)
   , ms :: [Int]         -- each entry represents one type checking phase.
@@ -57,7 +60,7 @@ data Entry = FlexMVar Identifier Decl
            deriving (Show)
 data Decl = Hole
           | TyDefn (ValueType Desugared)
-          | AbDefn (Ab Desugared)
+          | AbDefn (Ability Desugared)
           deriving (Show)
 type Context = Bwd Entry
 type TermBinding = (Operator Desugared, ValueType Desugared)
@@ -80,17 +83,17 @@ fmv (StringTy _) = S.empty
 fmv (IntTy _) = S.empty
 fmv (CharTy _) = S.empty
 
-fmvAb :: Ab Desugared -> S.Set Identifier
-fmvAb (Ab v (InterfaceMap m _) _) = S.union (fmvAbMod v) (foldMap (foldMap (foldMap fmvTypeArg)) (M.elems m))
+fmvAb :: Ability Desugared -> S.Set Identifier
+fmvAb (MkAbility v (InterfaceMap m _) _) = S.union (fmvAbMod v) (foldMap (foldMap (foldMap fmvTypeArg)) (M.elems m))
 
 fmvTypeArg :: TypeArg Desugared -> S.Set Identifier
 fmvTypeArg (VArg t _) = fmv t
 fmvTypeArg (EArg ab _) = fmvAb ab
 
-fmvAbMod :: AbMod Desugared -> S.Set Identifier
-fmvAbMod (EmpAb _) = S.empty
-fmvAbMod (AbRVar _ _) = S.empty
-fmvAbMod (AbFVar x _) = S.singleton x
+fmvAbMod :: AbilityMode Desugared -> S.Set Identifier
+fmvAbMod (AbilityMode.Empty _) = S.empty
+fmvAbMod (AbilityMode.RigidVar _ _) = S.empty
+fmvAbMod (AbilityMode.FlexibleVar x _) = S.singleton x
 
 fmvAdj :: Adjustment Desugared -> S.Set Identifier
 fmvAdj (ConsAdj x ts _) = foldMap fmvTypeArg ts
@@ -114,10 +117,10 @@ putContext :: Context -> Contextual ()
 putContext x = do s <- get
                   put $ s { ctx = x }
 
-getAmbient :: Contextual (Ab Desugared)
+getAmbient :: Contextual (Ability Desugared)
 getAmbient = gets amb
 
-putAmbient :: Ab Desugared -> Contextual ()
+putAmbient :: Ability Desugared -> Contextual ()
 putAmbient ab = do s <- get
                    put $ s { amb = ab }
 
@@ -159,7 +162,7 @@ getCmdTyVars cmd = do
   where
     filterTyVar :: TypeArg Desugared -> Identifier
     filterTyVar (VArg (RTVar x _) _) = x
-    filterTyVar (EArg (Ab (AbRVar x _) _ _) _) = x
+    filterTyVar (EArg (MkAbility (AbilityMode.RigidVar x _) _ _) _) = x
     -- TODO: LC: This is a terrible invariant: refactor the way in which commands
     --           (and constructors) are represented in the Contextual. Works for
     --           now though.
@@ -206,7 +209,7 @@ initContextual (MkProgram ttms) =
         h (MkDef id ty _ a) = modify (:< TermVar (Poly id a) (SCTy ty a))
 
 initTCState :: TCState
-initTCState = MkTCState BEmp (Ab (EmpAb a) (InterfaceMap M.empty a) a) M.empty M.empty []
+initTCState = MkTCState BEmp (MkAbility (AbilityMode.Empty a) (InterfaceMap M.empty a) a) M.empty M.empty []
   where a = Desugared Generated
 
 -- Only to be used for initialising the contextual monad
@@ -221,10 +224,10 @@ addCtr dt     ctr     ts         xs         = get >>= \s ->
 
 -- Given eff var "x", find assigned ability in context and return "Just" it
 -- if not found, return "Nothing"
-findAbVar :: AbMod Desugared -> Contextual (Maybe (Ab Desugared))
-findAbVar (EmpAb _) = return Nothing
-findAbVar (AbRVar _ _) = return Nothing
-findAbVar (AbFVar x _) = getContext >>= find'
+findAbVar :: AbilityMode Desugared -> Contextual (Maybe (Ability Desugared))
+findAbVar (AbilityMode.Empty _) = return Nothing
+findAbVar (AbilityMode.RigidVar _ _) = return Nothing
+findAbVar (AbilityMode.FlexibleVar x _) = getContext >>= find'
   where find' BEmp = return Nothing
         find' (es :< FlexMVar y (AbDefn ab)) | x == y = return $ Just ab
         find' (es :< _) = find' es
@@ -240,9 +243,9 @@ isMVarDefined x = getContext >>= find'
 
 -- Given ability [e | ...], "findAbVar" and thereby substitute the eff vars e
 -- so long until it is completely unfolded.
-expandAb :: Ab Desugared -> Contextual (Ab Desugared)
-expandAb (Ab v m a) =  do
+expandAb :: Ability Desugared -> Contextual (Ability Desugared)
+expandAb (MkAbility v m a) =  do
   ab <- findAbVar v
   case ab of
-    Just (Ab v' m' a') -> expandAb $ Ab v' (m' `plusInterfaceMap` m) a
-    Nothing ->            return $ Ab v m a
+    Just (MkAbility v' m' a') -> expandAb $ MkAbility v' (m' `plusInterfaceMap` m) a
+    Nothing ->            return $ MkAbility v m a

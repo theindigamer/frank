@@ -7,8 +7,10 @@ import Prelude hiding ((<>))
 import BwdFwd
 import Syntax
 import ParserCommon
-import RefineSyntaxCommon
-import TypeCheckCommon
+import Syntax.Refine.Common
+import TypeCheck.Common
+import qualified Syntax.AbilityMode as AbilityMode
+import qualified Syntax.Adaptor as Adaptor
 
 import Control.Monad
 import qualified Data.Map.Strict as M
@@ -75,8 +77,8 @@ errorRefDuplParamInterfaceAl itfAl@(MkInterfaceAlias x _ _ _) =
 errorRefDuplParamCmd :: Cmd Raw -> String
 errorRefDuplParamCmd cmd@(Cmd x _ _ _ _) = "duplicate parameter in command " ++ x ++ " (" ++ show (ppSourceOf cmd) ++ ")"
 
-errorRefAbMultEffVars :: Ab Raw -> [Identifier] -> String
-errorRefAbMultEffVars ab@(Ab v m a) es = "ability has multiple effect variables " ++ show es ++ " (" ++ show (ppSourceOf ab) ++ ")"
+errorRefAbMultEffVars :: Ability Raw -> [Identifier] -> String
+errorRefAbMultEffVars ab@(MkAbility v m a) es = "ability has multiple effect variables " ++ show es ++ " (" ++ show (ppSourceOf ab) ++ ")"
 
 errorRefEffVarNoParams :: Identifier -> String
 errorRefEffVarNoParams x = "effect variable " ++ x ++ " may not take parameters"
@@ -123,7 +125,7 @@ errorUnifTypeArgs :: TypeArg Desugared -> TypeArg Desugared -> String
 errorUnifTypeArgs t1 t2 =
   "failed to unify type arguments " ++ show (ppTypeArg t1) ++ " (" ++ show (ppSourceOf t1) ++ ")" ++ " with " ++ show (ppTypeArg t2) ++ " (" ++ show (ppSourceOf t2) ++ ")"
 
-errorUnifAbs :: Ab Desugared -> Ab Desugared -> String
+errorUnifAbs :: Ability Desugared -> Ability Desugared -> String
 errorUnifAbs ab1 ab2 =
   "cannot unify abilities " ++ show (ppAb ab1) ++ " (" ++ show (ppSourceOf ab1) ++ ")" ++ " and " ++ show (ppAb ab2) ++ " (" ++ show (ppSourceOf ab2) ++ ")"
 
@@ -131,12 +133,12 @@ errorUnifInterfaceMaps :: InterfaceMap Desugared -> InterfaceMap Desugared -> St
 errorUnifInterfaceMaps m1 m2 =
   "cannot unify interface maps " ++ show (ppInterfaceMap m1) ++ " (" ++ show (ppSourceOf m1) ++ ")" ++ " and " ++ show (ppInterfaceMap m2) ++ " (" ++ show (ppSourceOf m2) ++ ")"
 
-errorAdaptor :: Adaptor Desugared -> Ab Desugared -> String
-errorAdaptor adpd@(Adp x ns k _) ab =
+errorAdaptor :: Adaptor Desugared -> Ability Desugared -> String
+errorAdaptor adpd@(Adaptor.Adp x ns k _) ab =
   "Adaptor " ++ show (ppAdaptor adpd) ++
   " is not a valid adaptor in ambient " ++ show (ppAb ab) ++
   " (" ++  show (ppSourceOf adpd) ++ ")"
-errorAdaptor adpd@(CompilableAdp x m ns _) ab =
+errorAdaptor adpd@(Adaptor.Compilable x m ns _) ab =
   "Adaptor " ++ show (ppAdaptor adpd) ++
   " is not a valid adaptor in ambient " ++ show (ppAb ab) ++
   " (" ++  show (ppSourceOf adpd) ++ ")"
@@ -144,7 +146,7 @@ errorAdaptor adpd@(CompilableAdp x m ns _) ab =
 errorUnifSolveOccurCheck :: String
 errorUnifSolveOccurCheck = "solve: occurs check failure"
 
-errorFindCmdNotPermit :: String -> Desugared -> String -> Ab Desugared -> String
+errorFindCmdNotPermit :: String -> Desugared -> String -> Ability Desugared -> String
 errorFindCmdNotPermit cmd loc itf amb = "command " ++ cmd ++ " belonging to interface " ++ itf ++ " not permitted by ambient ability: " ++ show (ppAb amb) ++ " (" ++ show (ppSourceOf amb) ++ ")"
 
 {- Logging (output if debug mode is on) -}
@@ -199,12 +201,12 @@ logEndUnify t0 t1 = ifDebugTypeCheckOnThen $ do
   ctx <- getContext
   debugTypeCheckM $ "ended unifying\n   " ++ show (ppValueType t0) ++ "\nwith\n   " ++ show (ppValueType t1) ++ "\nCurrent context:\n" ++ show (ppContext ctx) ++ "\n\n"
 
-logBeginUnifyAb :: Ab Desugared -> Ab Desugared -> Contextual ()
+logBeginUnifyAb :: Ability Desugared -> Ability Desugared -> Contextual ()
 logBeginUnifyAb ab0 ab1 = ifDebugTypeCheckOnThen $ do
   ctx <- getContext
   debugTypeCheckM $ "begin to unify ab. \n   " ++ show (ppAb ab0) ++ "\nwith\n   " ++ show (ppAb ab1) ++ "\nCurrent context:\n" ++ show (ppContext ctx) ++ "\n\n"
 
-logEndUnifyAb :: Ab Desugared -> Ab Desugared -> Contextual ()
+logEndUnifyAb :: Ability Desugared -> Ability Desugared -> Contextual ()
 logEndUnifyAb ab0 ab1 = ifDebugTypeCheckOnThen $ do
   ctx <- getContext
   debugTypeCheckM $ "ended unifying ab. \n   " ++ show (ppAb ab0) ++ "\nwith\n   " ++ show (ppAb ab1) ++ "\nCurrent context:\n" ++ show (ppContext ctx) ++ "\n\n"
@@ -384,16 +386,16 @@ ppAdj :: (Show a, HasSource a) => Adjustment a -> PP.Doc
 ppAdj (ConsAdj x ts _) = ppInterfaceInstance (x, ts)
 ppAdj (AdaptorAdj adp _) = ppAdaptor adp
 
-ppAb :: (Show a, HasSource a) => Ab a -> PP.Doc
-ppAb (Ab v (InterfaceMap m _) _) | M.null m = text "[" <> ppAbMod v <> text "]"
-ppAb (Ab v m _) =
+ppAb :: (Show a, HasSource a) => Ability a -> PP.Doc
+ppAb (MkAbility v (InterfaceMap m _) _) | M.null m = text "[" <> ppAbMod v <> text "]"
+ppAb (MkAbility v m _) =
   text "[" <> ppAbMod v <+> text "|" <+> ppInterfaceMap m <> text "]"
 
-ppAbMod :: (Show a, HasSource a) => AbMod a -> PP.Doc
-ppAbMod (EmpAb _) = text "0"
-ppAbMod (AbVar x _) = text x
-ppAbMod (AbRVar x _) = if isDebugVerboseOn () then text x else text $ trimVar x
-ppAbMod (AbFVar x _) = if isDebugVerboseOn () then text x else text $ trimVar x
+ppAbMod :: (Show a, HasSource a) => AbilityMode a -> PP.Doc
+ppAbMod (AbilityMode.Empty _) = text "0"
+ppAbMod (AbilityMode.Var x _) = text x
+ppAbMod (AbilityMode.RigidVar x _) = if isDebugVerboseOn () then text x else text $ trimVar x
+ppAbMod (AbilityMode.FlexibleVar x _) = if isDebugVerboseOn () then text x else text $ trimVar x
 
 ppInterfaceMap :: (Show a, HasSource a) => InterfaceMap a -> PP.Doc
 ppInterfaceMap (InterfaceMap m _) =
@@ -457,11 +459,11 @@ ppAdaptors :: (Show a, HasSource a) => [Adaptor a] -> PP.Doc
 ppAdaptors rs = PP.hsep $ intersperse PP.comma $ map ppAdaptor rs
 
 ppAdaptor :: (Show a, HasSource a) => Adaptor a -> PP.Doc
-ppAdaptor (RawAdp x liat left right _) =
+ppAdaptor (Adaptor.Raw x liat left right _) =
   text x <> text "(" <> text (show liat) <+> sep (punctuate (text " ") (map (text . show) left)) <+> text "->" <+> sep (punctuate (text " ") (map (text . show) right)) <> text ")"
-ppAdaptor (Adp x mm ns _) =
+ppAdaptor (Adaptor.Adp x mm ns _) =
   text x <> text "(" <> text (show mm) <> comma <+> sep (punctuate comma (map int ns)) <> text ")"
-ppAdaptor (CompilableAdp x m ns _) =
+ppAdaptor (Adaptor.Compilable x m ns _) =
   text x <> text "(" <> sep (punctuate comma (map int ns)) <> text ")(" <>
   int m <> text ")"
 

@@ -12,6 +12,7 @@ import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 
 import Syntax
+import qualified Syntax.Adaptor as Adaptor
 import qualified Shonky.Syntax as S
 import Shonky.Renaming
 
@@ -180,7 +181,7 @@ compileUse (Adapted (r:rr) t a) =
      return $ S.ER (cs, r') rest
 
 compileAdaptor :: Adaptor Desugared -> Compile ([String], Renaming)
-compileAdaptor adp@(CompilableAdp x m ns _) = do
+compileAdaptor adp@(Adaptor.Compilable x m ns _) = do
   cmds <- getCCmds x
   return (cmds, adpToRen adp)
 

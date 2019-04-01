@@ -14,16 +14,18 @@ import Data.List.Unique
 import qualified Data.Set as S
 import qualified Data.Map.Strict as M
 
-import BwdFwd
+import BwdFwd (bwd2fwd, fwd2bwd, Bwd (..))
 import Syntax
+import qualified Syntax.AbilityMode as AbilityMode
+import qualified Syntax.Adaptor as Adaptor
 import FreshNames
-import TypeCheckCommon
+import TypeCheck.Common
 import Unification
 import Debug
 
 import Shonky.Renaming
 
-type EVMap a = M.Map Identifier (Ab a)
+type EVMap a = M.Map Identifier (Ability a)
 
 -- Given an operator, reconstruct its corresponding type assigned via context
 -- 1) x is command of interface itf:
@@ -49,7 +51,7 @@ find (CmdIdentifier x a) =
               else do ps <- mapM (makeFlexibleTypeArg []) qs
                       v <- freshMVar "E"
                       let m = InterfaceMap (M.fromList [(itf, BEmp :< ps)]) a
-                      unifyAb amb (Ab (AbFVar v a) m a)
+                      unifyAb amb (MkAbility (AbilityMode.FlexibleVar v a) m a)
                       return $ Just ps
        Just _ -> return mps
      logBeginFindCmd x itf mps
@@ -96,7 +98,7 @@ inScope x ty m = do modify (:< TermVar x ty)
         dropVar (es :< e) = dropVar es :< e
 
 -- Run a contextual computation in a modified ambient environment
-inAmbient :: Ab Desugared -> Contextual a -> Contextual a
+inAmbient :: Ability Desugared -> Contextual a -> Contextual a
 inAmbient amb m = do oldAmb <- getAmbient
                      putAmbient amb
                      a <- m
@@ -105,16 +107,16 @@ inAmbient amb m = do oldAmb <- getAmbient
 
 -- Return the n-th right-most instantiation of the interface in the given
 -- ability. Return Nothing if the interface is not part of the ability.
-lkpInterface :: Identifier -> Int -> Ab Desugared -> Contextual (Maybe [TypeArg Desugared])
-lkpInterface itf n (Ab v (InterfaceMap m _) _) =
+lkpInterface :: Identifier -> Int -> Ability Desugared -> Contextual (Maybe [TypeArg Desugared])
+lkpInterface itf n (MkAbility v (InterfaceMap m _) _) =
   case M.lookup itf m of
     Just xs
       | length (bwd2fwd xs) > n -> return $ Just (bwd2fwd xs !! (length (bwd2fwd xs) - n - 1))
       | otherwise               -> lkpInterfaceInAbMod itf (n - length (bwd2fwd xs)) v
     _ -> lkpInterfaceInAbMod itf n v
 
-lkpInterfaceInAbMod :: Identifier -> Int-> AbMod Desugared -> Contextual (Maybe [TypeArg Desugared])
-lkpInterfaceInAbMod itf n (AbFVar x _) = getContext >>= find'
+lkpInterfaceInAbMod :: Identifier -> Int-> AbilityMode Desugared -> Contextual (Maybe [TypeArg Desugared])
+lkpInterfaceInAbMod itf n (AbilityMode.FlexibleVar x _) = getContext >>= find'
   where find' BEmp = return Nothing
         find' (es :< FlexMVar y (AbDefn ab)) | x == y = lkpInterface itf n ab
         find' (es :< _) = find' es
@@ -246,7 +248,7 @@ inferUse app@(App f xs a) =  -- App rule
 inferUse adpd@(Adapted adps t a) =
   do logBeginInferUse adpd
      amb <- getAmbient >>= expandAb
-     let (Ab v p@(InterfaceMap m _) _) = amb
+     let (MkAbility v p@(InterfaceMap m _) _) = amb
      -- Check that the adaptors can be performed and modify the ambient
      -- accordingly
      (adps', amb') <- applyAllAdaptors adps amb
@@ -317,12 +319,12 @@ freshPort x a = do ty <- FTVar <$> freshMVar x <*> pure a
 
 -- create peg [E|]Y for fresh E, Y
 freshPeg :: Identifier -> Identifier -> Desugared -> Contextual (Peg Desugared)
-freshPeg x y a = do v <- AbFVar <$> freshMVar x <*> pure a
+freshPeg x y a = do v <- AbilityMode.FlexibleVar <$> freshMVar x <*> pure a
                     ty <- FTVar <$> freshMVar y <*> pure a
-                    return $ Peg (Ab v (InterfaceMap M.empty a) a) ty a
+                    return $ Peg (MkAbility v (InterfaceMap M.empty a) a) ty a
 
 -- create peg [ab]X for given [ab], fresh X
-freshPegWithAb :: Ab Desugared -> Identifier -> Desugared -> Contextual (Peg Desugared)
+freshPegWithAb :: Ability Desugared -> Identifier -> Desugared -> Contextual (Peg Desugared)
 freshPegWithAb ab x a = do ty <- FTVar <$> freshMVar x <*> pure a
                            return $ Peg ab ty a
 
@@ -450,13 +452,19 @@ makeFlexible skip (RTVar x a) | x `notElem` skip = FTVar <$> (getContext >>= fin
         find' (es :< _) = find' es
 makeFlexible skip ty = return ty
 
-makeFlexibleAb :: [Identifier] -> Ab Desugared -> Contextual (Ab Desugared)
-makeFlexibleAb skip (Ab v (InterfaceMap m _) a) = case v of
-  AbRVar x b -> do v' <- if x `notElem` skip then AbFVar <$> (getContext >>= find' x) <*> pure b else return $ AbRVar x b
-                   m' <- mapM (mapM (mapM (makeFlexibleTypeArg skip))) m
-                   return $ Ab v' (InterfaceMap m' a) a
-  _ ->          do m' <- mapM (mapM (mapM (makeFlexibleTypeArg skip))) m
-                   return $ Ab v (InterfaceMap m' a) a
+makeFlexibleAb :: [Identifier] -> Ability Desugared -> Contextual (Ability Desugared)
+makeFlexibleAb skip (MkAbility v (InterfaceMap m _) a) = case v of
+  AbilityMode.RigidVar x b -> do
+    v' <- if x `notElem` skip
+          then AbilityMode.FlexibleVar
+               <$> (getContext >>= find' x)
+               <*> pure b
+          else return $ AbilityMode.RigidVar x b
+    m' <- mapM (mapM (mapM (makeFlexibleTypeArg skip))) m
+    return $ MkAbility v' (InterfaceMap m' a) a
+  _ -> do
+    m' <- mapM (mapM (mapM (makeFlexibleTypeArg skip))) m
+    return $ MkAbility v (InterfaceMap m' a) a
 -- find' either creates a new FlexMVar in current locality or identifies the one
 -- already existing
   where find' x BEmp = freshMVar x
@@ -492,12 +500,12 @@ makeFlexiblePort skip (Port adjs ty a) =
        <*> makeFlexible skip ty
        <*> pure a
 
-applyAllAdjustments :: [Adjustment Desugared] -> Ab Desugared ->
-                       Contextual ([Adjustment Desugared], Ab Desugared)
+applyAllAdjustments :: [Adjustment Desugared] -> Ability Desugared ->
+                       Contextual ([Adjustment Desugared], Ability Desugared)
 applyAllAdjustments [] ab = return ([], ab)
 
-applyAllAdjustments (adj@(ConsAdj x ts _) : adjr) (Ab v p@(InterfaceMap m a') a) = do
-  let ab' = Ab v (InterfaceMap (adjustWithDefault (:< ts) x BEmp m) a') a
+applyAllAdjustments (adj@(ConsAdj x ts _) : adjr) (MkAbility v p@(InterfaceMap m a') a) = do
+  let ab' = MkAbility v (InterfaceMap (adjustWithDefault (:< ts) x BEmp m) a') a
   (adjr', ab'') <- applyAllAdjustments adjr ab'
   return (adj : adjr', ab'')
 
@@ -509,22 +517,22 @@ applyAllAdjustments (AdaptorAdj adp a : adjr) ab = do
      return (AdaptorAdj adp' a : adjr'', ab'')
    Nothing -> throwError $ errorAdaptor adp ab
 
-applyAdaptor :: Adaptor Desugared -> Ab Desugared -> Maybe (Adaptor Desugared, Ab Desugared)
-applyAdaptor adp ab@(Ab v p@(InterfaceMap m a') a) =
+applyAdaptor :: Adaptor Desugared -> Ability Desugared -> Maybe (Adaptor Desugared, Ability Desugared)
+applyAdaptor adp ab@(MkAbility v p@(InterfaceMap m a') a) =
   case adpToCompilableAdp ab adp of
     Nothing -> Nothing
-    Just adp'@(CompilableAdp x m' ns a'') ->
+    Just adp'@(Adaptor.Compilable x m' ns a'') ->
       let instances = (reverse . bwd2fwd) (M.findWithDefault BEmp x m) in
       let instances' = map (instances !!) ns in
       if null instances' then
-        Just (adp', Ab v (InterfaceMap (M.delete x m) a') a)
+        Just (adp', MkAbility v (InterfaceMap (M.delete x m) a') a)
       else
-        Just (adp', Ab v (InterfaceMap (
+        Just (adp', MkAbility v (InterfaceMap (
           M.insert x ((fwd2bwd . reverse) instances') m
         ) a') a)
 
-adpToCompilableAdp :: Ab Desugared -> Adaptor Desugared -> Maybe (Adaptor Desugared)
-adpToCompilableAdp (Ab v p@(InterfaceMap m a') a) adp@(Adp x mm ns a'') =
+adpToCompilableAdp :: Ability Desugared -> Adaptor Desugared -> Maybe (Adaptor Desugared)
+adpToCompilableAdp (MkAbility v p@(InterfaceMap m a') a) adp@(Adaptor.Adp x mm ns a'') =
   let instancesLength = (length . bwd2fwd) (M.findWithDefault BEmp x m) in
   if null ns || instancesLength > maximum ns then
     -- ns is only the xiferp (reverse prefix)
@@ -533,13 +541,13 @@ adpToCompilableAdp (Ab v p@(InterfaceMap m a') a) adp@(Adp x mm ns a'') =
                  Nothing -> []
                  (Just jm) -> reverse [jm .. instancesLength - 1] in
     let ns' = liat ++ ns in
-    Just $ CompilableAdp x instancesLength ns' a''
+    Just $ Adaptor.Compilable x instancesLength ns' a''
   else Nothing
-adpToCompilableAdp (Ab v p@(InterfaceMap m a') a) adp@(CompilableAdp x m' ns a'') =
+adpToCompilableAdp (MkAbility v p@(InterfaceMap m a') a) adp@(Adaptor.Compilable x m' ns a'') =
   let instancesLength = (length . bwd2fwd) (M.findWithDefault BEmp x m) in
   if instancesLength == m' then Just adp else Nothing
 
-applyAllAdaptors :: [Adaptor Desugared] -> Ab Desugared -> Contextual ([Adaptor Desugared], Ab Desugared)
+applyAllAdaptors :: [Adaptor Desugared] -> Ability Desugared -> Contextual ([Adaptor Desugared], Ability Desugared)
 applyAllAdaptors adps ab = do
   -- TODO: LC: kind of not nice, to wrap and then unwrap - implement
   -- differently later?

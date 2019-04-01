@@ -6,7 +6,13 @@
              PatternSynonyms #-}
 
 -- | The raw abstract syntax and (refined) abstract syntax for Frank
-module Syntax where
+module Syntax
+  ( module Syntax
+  , module Syntax.Common
+  , Adaptor
+  , AbilityMode
+  )
+  where
 
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
@@ -18,132 +24,16 @@ import Data.Coerce (coerce, Coercible)
 
 import BwdFwd
 
+import Syntax.Common
+
+import Syntax.Adaptor (Adaptor, AdaptorF)
+import Syntax.AbilityMode (AbilityMode, AbilityModeF)
+import qualified Syntax.AbilityMode as AbilityMode
+import qualified Syntax.Adaptor as Adaptor
+
 import Shonky.Renaming
 
 {-# ANN module "HLint: ignore Use camelCase" #-}
-
---------------------------------------------------------------------------------
--- * Elementary definitions
-
--- | lol.
-type Identifier = String
-
--- | Top level definitions instantiate this class
-class HasIdentifier a where
-  getIdentifier :: a -> Identifier
-
-----------------------------------------------------------------------
--- * Fix points and annotations
-
--- | Fixed-point operator, takes a functor @f@
-newtype Fix f = MkFix (f (Fix f))
-
-deriving instance Show (f (Fix f)) => Show (Fix f)
-deriving instance Eq (f (Fix f)) => Eq (Fix f)
-
-type Transformer = (Type -> Type) -> (Type -> Type)
-
--- | Gives the fixed-point of a functor "f" (see AST definitions),
--- parameterised by transformer "t" (e.g. AnnotT Raw).
-type TFix (t :: Transformer)
-          (f :: Transformer -> Type -> Type) = Fix (t (f t))
-
--- | Annotation Transformer.
--- Takes an annotation object @a@, a functor @f@, recursor type @r@.
-newtype AnnotT a f r = MkAnnotT (f r, a)
-  deriving (Show, Eq)
-
--- | Like TFix, but with special transformer, namely @AnnotT a@
--- Takes an annotation object @a@, a functor @f@.
-type AnnotTFix a f = TFix (AnnotT a) f
-
--- | Add annotation.
-ann :: a -> f (AnnotT a) (AnnotTFix a f) -> AnnotTFix a f
-ann a v = MkFix (MkAnnotT (v, a))
-
--- | Retrieve object + annotation.
-unwrap :: AnnotTFix a f -> (f (AnnotT a) (AnnotTFix a f), a)
-unwrap (MkFix (MkAnnotT (v, a))) = (v, a)
-
--- | Strip annotation.
-stripAnn :: AnnotTFix a f -> f (AnnotT a) (AnnotTFix a f)
-stripAnn = fst . unwrap
-
--- | Get annotation.
-getAnn :: AnnotTFix a f -> a
-getAnn = snd . unwrap
-
--- | Set annotation, dropping the existing one.
-setAnn :: a -> AnnotTFix a f -> AnnotTFix a f
-setAnn a = ann a . stripAnn
-
--- | To annotate the origin of a node
-data Source
-  = InCode (Int, Int)
-  | BuiltIn
-  | Implicit
-  | ImplicitNear (Int, Int)
-  | Generated
-  deriving (Show, Eq)
-
-class HasSource a where
-  getSource :: a -> Source
-
-instance {-# OVERLAPPABLE #-} Coercible Source a => HasSource a where
-  getSource = coerce
-
-instance HasSource a => HasSource (AnnotTFix a f) where
-  getSource x = getSource (getAnn x)
-
--- NOTE (Varun): Erm, why is this changing things?
-implicitNear :: HasSource a => a -> Source
-implicitNear v = case getSource v of
-  InCode (line, col) -> ImplicitNear (line, col)
-  _                  -> Implicit
-
-type Typeclass = Type -> Constraint
-
---------------------------------------------------------------------------------
--- * Stage-wise annotations.
---
--- Raw syntax comes from the parser and is preprocessed into Refined syntax.
--- After that, Refined syntax gets converted to Desugared syntax.
---
--- GADTs are used to enforce the fact that only certain constructors are present
--- at different stages.
---
--- We use @syn@ as the type variable for the "syntax state".
--- So, @syn@ will be one of 'Raw', 'Refined', or 'Desugared'.
-
--- | Output from the parser
-newtype Raw = Raw Source
-  deriving (Show, Eq)
-
-class NotRaw a where
-instance NotRaw () where
--- TODO (Varun): This instance below seems fishy. Shouldn't it be only
--- present for a ~ Desugared and a ~ Refined?
-instance NotRaw (AnnotT a Identity ()) where
-instance NotRaw Desugared where
-instance NotRaw Refined where
-
-type IsNotRaw t = NotRaw (t Identity ())
-
--- | Well-formed AST, after tidying up the output from the parser.
-newtype Refined = Refined Source
-  deriving (Show, Eq)
-
-class NotDesugared a where
-instance NotDesugared Raw where
-instance NotDesugared (AnnotT Raw Identity ()) where
-instance NotDesugared Refined where
-instance NotDesugared (AnnotT Refined Identity ()) where
-
--- | Desugaring of types:
---   * type variables are given unique names
---   * strings are lists of characters -- NOTE (Varun): Erm, what?
-newtype Desugared = Desugared Source
-  deriving (Show, Eq)
 
 --------------------------------------------------------------------------------
 -- * AST Nodes
@@ -741,10 +631,10 @@ pattern AdaptorAdj adp a = MkFix (MkAnnotT (MkAdaptorAdj adp, a))
 
 data AbilityF :: Transformer -> * -> * where
   -- | interface-id  ->  list of ty arg's
-  MkAbilityF :: TFix t AbModF -> TFix t InterfaceMapF -> AbilityF t r
+  MkAbilityF :: TFix t AbilityModeF -> TFix t InterfaceMapF -> AbilityF t r
 
 type Ability_ClassReq (c :: Typeclass) r t =
-  ( c (TFix t AbModF)
+  ( c (TFix t AbilityModeF)
   , c (TFix t InterfaceMapF)
   , c r, c (TFix t AbilityF)
   )
@@ -752,33 +642,9 @@ type Ability_ClassReq (c :: Typeclass) r t =
 deriving instance Ability_ClassReq Show r t => Show (AbilityF t r)
 deriving instance Ability_ClassReq Eq   r t => Eq   (AbilityF t r)
 
-type Ab a = AnnotTFix a AbilityF
+type Ability a = AnnotTFix a AbilityF
 
-pattern Ab abMod itfMap a = MkFix (MkAnnotT (MkAbilityF abMod itfMap, a))
-
-------------------------------------------------------------
--- *** Ability modes
-
--- | Ability modes
-data AbModF :: Transformer -> * -> * where
-  -- | empty (closed ability)
-  MkEmpAb :: AbModF t r
-  -- | non-desugared effect variable
-  MkAbVar :: NotDesugared (t Identity ()) => Identifier -> AbModF t r
-  -- | rigid eff var    (open ability)
-  MkAbRVar :: Identifier -> AbModF (AnnotT Desugared)  r
-  -- | flexible eff var (open ability)
-  MkAbFVar :: Identifier -> AbModF (AnnotT Desugared)  r
-
-deriving instance (Show r, Show (TFix t AbModF)) => Show (AbModF t r)
-deriving instance (Eq r, Eq (TFix t AbModF)) => Eq (AbModF t r)
-
-type AbMod a = AnnotTFix a AbModF
-
-pattern EmpAb a = MkFix (MkAnnotT (MkEmpAb, a))
-pattern AbVar x a = MkFix (MkAnnotT (MkAbVar x, a))
-pattern AbRVar x a = MkFix (MkAnnotT (MkAbRVar x, a))
-pattern AbFVar x a = MkFix (MkAnnotT (MkAbFVar x, a))
+pattern MkAbility abMod itfMap a = MkFix (MkAnnotT (MkAbilityF abMod itfMap, a))
 
 ------------------------------------------------------------
 -- *** Type arguments
@@ -801,37 +667,6 @@ type TypeArg a = AnnotTFix a TypeArgF
 pattern VArg ty a = MkFix (MkAnnotT (MkVArg ty, a))
 pattern EArg ab a = MkFix (MkAnnotT (MkEArg ab, a))
 
-------------------------------------------------------------
--- *** Adaptors
-
--- TODO: LC: Make distinction between MkAdp and MkCompilableAdp on
--- type-level (GADT)
-data AdaptorF :: Transformer -> * -> * where
- -- | e.g. I(s y x -> y x) (s is first arg, [y x] is second arg, [y x] is third arg)
-  MkRawAdp
-    :: Identifier
-    -> Identifier
-    -> [Identifier]
-    -> [Identifier]
-    -> AdaptorF (AnnotT Raw) r
-
-  -- | Adapt an interface `x` in an ability from right to left according to `ns`
-  -- and (possibly - according to Maybe) attach all instances from `m` on
-  MkAdp :: Identifier -> Maybe Int -> [Int] -> AdaptorF t r
-
-  -- | adapt an interface `x` in an ability that has exactly `n` instances of
-  -- it from right to left according to `ns`
-  MkCompilableAdp :: Identifier -> Int -> [Int] -> AdaptorF t r
-
-deriving instance (Show r, Show (TFix t AdaptorF)) => Show (AdaptorF t r)
-deriving instance (Eq r, Eq (TFix t AdaptorF)) => Eq (AdaptorF t r)
-
-type Adaptor a = AnnotTFix a AdaptorF
-
-pattern RawAdp x liat left right a = MkFix (MkAnnotT (MkRawAdp x liat left right, a))
-pattern Adp x mm ns a = MkFix (MkAnnotT (MkAdp x mm ns, a))
-pattern CompilableAdp x m ns a = MkFix (MkAnnotT (MkCompilableAdp x m ns, a))
-
 --------------------------------------------------------------------------------
 -- * Helper functions
 
@@ -852,40 +687,40 @@ collectDTNames = map getIdentifier
 
 -- Convert ability to a list of interface names and effect variables
 {-
-abToList :: Ab a -> [Identifier]
+abToList :: Ability a -> [Identifier]
 abToList MkEmpAb = []
 abToList (MkAbVar id) = [id]
 abToList MkOpenAb = []
 abToList (MkAbPlus ab id _) = id : abToList ab
 
 -- Substitute the ability for the distinguished effect variable in the type.
-substOpenAb :: Ab a -> ValueType a -> ValueType a
+substOpenAb :: Ability a -> ValueType a -> ValueType a
 substOpenAb ab (MkDTTy id abs xs) =
   MkDTTy id (map (substOpenAbAb ab) abs) (map (substOpenAb ab) xs)
 substOpenAb ab (MkSCTy cty) = MkSCTy $ substOpenAbCompType ab cty
 substOpenAb _ ty = ty
 
-substOpenAbAb :: Ab a -> Ab a -> Ab a
+substOpenAbAb :: Ability a -> Ability a -> Ability a
 substOpenAbAb ab MkEmpAb = MkEmpAb
 substOpenAbAb ab MkOpenAb = ab
 substOpenAbAb ab (MkAbVar x) = MkAbVar x
 substOpenAbAb ab (MkAbPlus ab' x ts) =
   MkAbPlus (substOpenAbAb ab' ab) x (map (substOpenAb ab) ts)
 
-substOpenAbAdj :: Ab a -> Adj a -> Adj a
+substOpenAbAdj :: Ability a -> Adj a -> Adj a
 substOpenAbAdj ab MkIdAdj = MkIdAdj
 substOpenAbAdj ab (MkAdjPlus adj itf xs) =
   MkAdjPlus (substOpenAbAdj ab adj) itf (map (substOpenAb ab) xs)
 
-substOpenAbCompType :: Ab a -> CompType a -> CompType a
+substOpenAbCompType :: Ability a -> CompType a -> CompType a
 substOpenAbCompType ab (MkCompType ps q) =
   MkCompType (map (substOpenAbPort ab) ps) (substOpenAbPeg ab q)
 
-substOpenAbPeg :: Ab a -> Peg a -> Peg a
+substOpenAbPeg :: Ability a -> Peg a -> Peg a
 substOpenAbPeg ab (MkPeg ab' ty) =
   MkPeg (substOpenAbAb ab ab') (substOpenAb ab ty)
 
-substOpenAbPort :: Ab a -> Port a -> Port a
+substOpenAbPort :: Ability a -> Port a -> Port a
 substOpenAbPort ab (MkPort adj ty) =
   MkPort (substOpenAbAdj ab adj) (substOpenAb ab ty)
 -}
@@ -899,7 +734,7 @@ getOpName (CmdIdentifier x _) = x
 -- (use during refinement of itf maps)
 tyVar2rawTyVarArg :: (Identifier, Kind) -> TypeArg Raw
 tyVar2rawTyVarArg (id, VT) = VArg (TVar id (Raw Generated)) (Raw Generated)
-tyVar2rawTyVarArg (id, ET) = EArg (liftAbMod (AbVar id (Raw Generated)))
+tyVar2rawTyVarArg (id, ET) = EArg (liftAbMod (AbilityMode.Var id (Raw Generated)))
                                   (Raw Generated)
 
 -- transform type variable (+ its kind) to a rigid tye variable argument
@@ -907,12 +742,12 @@ tyVar2rawTyVarArg (id, ET) = EArg (liftAbMod (AbVar id (Raw Generated)))
 tyVar2rigTyVarArg :: (Identifier, Kind) -> TypeArg Desugared
 tyVar2rigTyVarArg (id, VT) = VArg (RTVar id (Desugared Generated))
                                   (Desugared Generated)
-tyVar2rigTyVarArg (id, ET) = EArg (liftAbMod (AbRVar id
+tyVar2rigTyVarArg (id, ET) = EArg (liftAbMod (AbilityMode.RigidVar id
                                                      (Desugared Generated)))
                                   (Desugared Generated)
 
-liftAbMod :: AbMod t -> Ab t
-liftAbMod abMod = Ab abMod (InterfaceMap M.empty (getAnn abMod)) (getAnn abMod)
+liftAbMod :: AbilityMode t -> Ability t
+liftAbMod abMod = MkAbility abMod (InterfaceMap M.empty (getAnn abMod)) (getAnn abMod)
 
 -- Only to be applied to identifiers representing rigid or flexible
 -- metavariables (type or effect).
@@ -983,7 +818,7 @@ addAdjNormalForm (ConsAdj x ts a) (insts, adps) =
   ( adjustWithDefault (:< ts) x BEmp insts
   , adjustWithDefault (\(rs, r) -> renToNormalForm (0 : map (+ 1) rs, r + 1)) x renIdentifier adps
   )
-addAdjNormalForm (AdaptorAdj adp@(CompilableAdp x m ns _) a) (insts, adps) =
+addAdjNormalForm (AdaptorAdj adp@(Adaptor.Compilable x m ns _) a) (insts, adps) =
   ( insts
   , adjustWithDefault (renToNormalForm . renCompose (adpToRen adp)) x renIdentifier adps
   )
@@ -995,4 +830,4 @@ adjustWithDefault :: Ord k => (a -> a) -> k -> a -> M.Map k a -> M.Map k a
 adjustWithDefault f k def = M.alter (Just . f . fromMaybe def) k
 
 adpToRen :: Adaptor Desugared -> Renaming
-adpToRen (CompilableAdp x m ns _) = (reverse ns, m)
+adpToRen (Adaptor.Compilable x m ns _) = (reverse ns, m)

@@ -1,5 +1,5 @@
 -- Definitions used during refinement phase
-module RefineSyntaxCommon where
+module Syntax.Refine.Common where
 
 import Control.Monad
 import Control.Monad.Except

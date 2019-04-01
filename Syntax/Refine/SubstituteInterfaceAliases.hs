@@ -13,7 +13,7 @@ import qualified Data.Set as S
 
 import BwdFwd
 import Syntax
-import RefineSyntaxCommon
+import Syntax.Refine.Common
 import Syntax.Refine.ConcretiseEps
 import Debug
 
@@ -59,7 +59,7 @@ substLookupVT subst x = case find (\((x', k), y) -> x' == x && k == VT) subst of
   Just (_, VArg ty a) -> Just ty
   _                    -> Nothing
 
-substLookupET :: Subst -> Identifier -> Maybe (Ab Raw)
+substLookupET :: Subst -> Identifier -> Maybe (Ability Raw)
 substLookupET subst x = case find (\((x', k), y) -> x' == x && k == ET) subst of
   Just (_, EArg ab a) -> Just ab
   _                    -> Nothing
@@ -110,7 +110,7 @@ substitInPeg subst (Peg ab ty a) = do ab' <- substitInAb subst ab
                                       ty' <- substitInValueType subst ty
                                       return $ Peg ab' ty' a
 
-substitInAb :: Subst -> Ab Raw -> Refine (Ab Raw)
+substitInAb :: Subst -> Ability Raw -> Refine (Ability Raw)
 substitInAb subst = return
 
 substitInAdj :: Subst -> Adjustment Raw -> Refine (Adjustment Raw)

@@ -7,6 +7,7 @@ import TypeCheck
 import Syntax
 import Syntax.Refine
 import Syntax.Desugar
+import qualified Syntax.AbilityMode as AbilityMode
 import Debug
 
 import qualified Shonky.Semantics as Shonky
@@ -39,7 +40,7 @@ splice (MkProgram xs) tm = MkProgram $ xs ++ ys
     sig = SigTerm (MkMultiHandlerSignature ident (CompType [] peg b) b) b
     peg = Peg ab ty b
     ty = TVar "%X" b
-    ab = Ab (AbVar "£" b) (InterfaceMap M.empty (Raw Generated)) b
+    ab = MkAbility (AbilityMode.Var "£" b) (InterfaceMap M.empty (Raw Generated)) b
     cls = ClauseTerm (MkMultiHandlerClause ident (MkClause [] tm b) b) b
     ident = "%eval"
     b = Raw Generated

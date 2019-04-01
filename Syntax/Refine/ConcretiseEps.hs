@@ -15,6 +15,7 @@ import qualified Data.Set as S
 
 import BwdFwd
 import Syntax
+import qualified Syntax.AbilityMode as AbilityMode
 
 -- | Node container for the graph algorithm
 data Node
@@ -191,8 +192,8 @@ concretiseEps dts itfs itfAls =
   hasEpsPeg :: [Identifier] -> Peg Raw -> HasEps
   hasEpsPeg tvs (Peg ab ty a) = anyHasEps [hasEpsAb tvs ab, hasEpsValueType tvs ty]
 
-  hasEpsAb :: [Identifier] -> Ab Raw -> HasEps
-  hasEpsAb tvs (Ab v m a) = anyHasEps [hasEpsAbMod tvs v, hasEpsInterfaceMap tvs m]
+  hasEpsAb :: [Identifier] -> Ability Raw -> HasEps
+  hasEpsAb tvs (MkAbility v m a) = anyHasEps [hasEpsAbMod tvs v, hasEpsInterfaceMap tvs m]
 
   hasEpsInterfaceMap :: [Identifier] -> InterfaceMap Raw -> HasEps
   hasEpsInterfaceMap tvs mp@(InterfaceMap m _) =
@@ -214,10 +215,10 @@ concretiseEps dts itfs itfAls =
           isInterfaceWithNArgs (InterfaceNode (MkInterface _ ps _ _))        n = length ps == n
           isInterfaceWithNArgs (InterfaceAlNode (MkInterfaceAlias _ ps _ _)) n = length ps == n
 
-  hasEpsAbMod :: [Identifier] -> AbMod Raw -> HasEps
-  hasEpsAbMod tvs (EmpAb _)     = hasNoEps
-  hasEpsAbMod tvs (AbVar "£" _) = HasEps
-  hasEpsAbMod tvs (AbVar _ _)   = hasNoEps
+  hasEpsAbMod :: [Identifier] -> AbilityMode Raw -> HasEps
+  hasEpsAbMod tvs (AbilityMode.Empty _)     = hasNoEps
+  hasEpsAbMod tvs (AbilityMode.Var "£" _) = HasEps
+  hasEpsAbMod tvs (AbilityMode.Var _ _)   = hasNoEps
 
   hasEpsTypeArg :: [Identifier] -> TypeArg Raw -> HasEps
   hasEpsTypeArg tvs (VArg t _)  = hasEpsValueType tvs t
@@ -245,7 +246,7 @@ concretiseEpsInInterfaceAl posIds (MkInterfaceAlias itfAl ps itfMap a) =
 concretiseEpsArg :: [(Identifier, Kind)] -> [TypeArg Raw] -> Raw -> [TypeArg Raw]
 concretiseEpsArg ps ts a = if length ps == length ts + 1 &&
                               (snd (ps !! length ts) == ET)
-                           then ts ++ [EArg (Ab (AbVar "£" a) (InterfaceMap M.empty a) a) a]
+                           then ts ++ [EArg (MkAbility (AbilityMode.Var "£" a) (InterfaceMap M.empty a) a) a]
                            else ts
 
 {- Helper functions -}

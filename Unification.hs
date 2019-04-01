@@ -9,7 +9,8 @@ import Control.Monad.Except
 import BwdFwd
 import FreshNames
 import Syntax
-import TypeCheckCommon
+import qualified Syntax.AbilityMode as AbilityMode
+import TypeCheck.Common
 import Debug
 
 data Extension = Restore | Replace Suffix
@@ -63,8 +64,8 @@ unify t0 t1 = do logBeginUnify t0 t1
   unify' t               s                    = throwError $ errorUnifTys t s
 
 -- unify 2 eff tys in current context
-unifyAb :: Ab Desugared -> Ab Desugared -> Contextual ()
-unifyAb ab0@(Ab v0 m0 a) ab1@(Ab v1 m1 b) =
+unifyAb :: Ability Desugared -> Ability Desugared -> Contextual ()
+unifyAb ab0@(MkAbility v0 m0 a) ab1@(MkAbility v1 m1 b) =
   do logBeginUnifyAb ab0 ab1
      -- expand abs by resolving all flexible variables
      ab0' <- expandAb ab0
@@ -72,26 +73,26 @@ unifyAb ab0@(Ab v0 m0 a) ab1@(Ab v1 m1 b) =
      -- then unify
      unifyAb' ab0' ab1'
      logEndUnifyAb ab0 ab1
-  where unifyAb' :: Ab Desugared -> Ab Desugared -> Contextual ()
+  where unifyAb' :: Ability Desugared -> Ability Desugared -> Contextual ()
         -- Same eff ty vars leaves nothing to unify but instantiat's m0, m1
-        unifyAb' ab0@(Ab v0 m1 _) ab1@(Ab v1 m2 _) | stripAnn v0 == stripAnn v1 =
+        unifyAb' ab0@(MkAbility v0 m1 _) ab1@(MkAbility v1 m2 _) | stripAnn v0 == stripAnn v1 =
           catchError (unifyInterfaceMap m1 m2) (unifyAbError ab0 ab1)
         -- Both eff ty vars are flexible
-        unifyAb' (Ab (AbFVar x a') m1 a) (Ab (AbFVar y b') m2 b) =
+        unifyAb' (MkAbility (AbilityMode.FlexibleVar x a') m1 a) (MkAbility (AbilityMode.FlexibleVar y b') m2 b) =
           do -- For same occurrences of interfaces, their instantiat's must coincide
              unifyInterfaceMap (intersectInterfaceMap m1 m2) (intersectInterfaceMap m2 m1)
-             v <- AbFVar <$> freshMVar "£" <*> pure (Desugared Generated)
-             solveForEVar x a' [] (Ab v (m2 `cutInterfaceMapSuffix` m1) a)  -- TODO: LC: locations assigned correctly?
-             solveForEVar y b' [] (Ab v (m1 `cutInterfaceMapSuffix` m2) b)
+             v <- AbilityMode.FlexibleVar <$> freshMVar "£" <*> pure (Desugared Generated)
+             solveForEVar x a' [] (MkAbility v (m2 `cutInterfaceMapSuffix` m1) a)  -- TODO: LC: locations assigned correctly?
+             solveForEVar y b' [] (MkAbility v (m1 `cutInterfaceMapSuffix` m2) b)
         -- One eff ty var is flexible, the other one either empty or rigid
-        unifyAb' (Ab (AbFVar x a') m1 _) (Ab v m2 b)
+        unifyAb' (MkAbility (AbilityMode.FlexibleVar x a') m1 _) (MkAbility v m2 b)
           | isInterfaceMapEmpty (cutInterfaceMapSuffix m1 m2) =
             do unifyInterfaceMap (intersectInterfaceMap m1 m2) (intersectInterfaceMap m2 m1)
-               solveForEVar x a' [] (Ab v (m2 `cutInterfaceMapSuffix` m1) b)   -- TODO: LC: locations assigned correctly?
-        unifyAb' (Ab v m1 a) (Ab (AbFVar y b') m2 _)
+               solveForEVar x a' [] (MkAbility v (m2 `cutInterfaceMapSuffix` m1) b)   -- TODO: LC: locations assigned correctly?
+        unifyAb' (MkAbility v m1 a) (MkAbility (AbilityMode.FlexibleVar y b') m2 _)
           | isInterfaceMapEmpty (cutInterfaceMapSuffix m2 m1) =
             do unifyInterfaceMap (intersectInterfaceMap m1 m2) (intersectInterfaceMap m2 m1)
-               solveForEVar y b' [] (Ab v (m1 `cutInterfaceMapSuffix` m2) a)   -- TODO: LC: locations assigned correctly?
+               solveForEVar y b' [] (MkAbility v (m1 `cutInterfaceMapSuffix` m2) a)   -- TODO: LC: locations assigned correctly?
         -- In any other case
         unifyAb' ab0 ab1 = throwError $ errorUnifAbs ab0 ab1
 
@@ -100,7 +101,7 @@ unifyTypeArg (VArg t0 _) (VArg t1 _) = unify t0 t1
 unifyTypeArg (EArg ab0 _) (EArg ab1 _) = unifyAb ab0 ab1
 unifyTypeArg arg0 arg1 = throwError $ errorUnifTypeArgs arg0 arg1
 
-unifyAbError :: Ab Desugared -> Ab Desugared -> String -> Contextual ()
+unifyAbError :: Ability Desugared -> Ability Desugared -> String -> Contextual ()
 unifyAbError ab0 ab1 _ = throwError $ errorUnifAbs ab0 ab1
 
 -- Given two interface maps, check that each instantiation has a unifiable
@@ -155,11 +156,11 @@ solve x a ext ty = do logBeginSolve x ext ty
       (False, True,  Hole) -> solve x a ((y, d):ext) ty >> replace []           -- inst-depend
       (False, False, Hole) -> solve x a ext ty >> restore                       -- inst-skip-ty
 
-solveForEVar :: Identifier -> Desugared -> Suffix -> Ab Desugared -> Contextual ()
+solveForEVar :: Identifier -> Desugared -> Suffix -> Ability Desugared -> Contextual ()
 solveForEVar x a ext ab = onTop $ \y d ->
   case (x == y, S.member y (fmvAb ab), d) of
     (_, _, AbDefn ab') ->
-      let vab = Ab (AbFVar x a) (InterfaceMap M.empty a) a in
+      let vab = MkAbility (AbilityMode.FlexibleVar x a) (InterfaceMap M.empty a) a in
       modify (<>< entrify ext) >>
       unifyAb (substEVarAb ab' y vab) (substEVarAb ab' y ab) >>
       restore
@@ -178,8 +179,8 @@ subst ty x (SCTy cty a) = SCTy (substCompType ty x cty) a
 subst ty x (FTVar y a) | x == y = ty
 subst _ _ ty = ty
 
-substAb :: ValueType Desugared -> Identifier -> Ab Desugared -> Ab Desugared
-substAb ty x (Ab v (InterfaceMap m a') a) = Ab v (InterfaceMap m' a') a
+substAb :: ValueType Desugared -> Identifier -> Ability Desugared -> Ability Desugared
+substAb ty x (MkAbility v (InterfaceMap m a') a) = MkAbility v (InterfaceMap m' a') a
   where m' = fmap (fmap (map (substTypeArg ty x))) m
 
 substTypeArg :: ValueType Desugared -> Identifier -> TypeArg Desugared -> TypeArg Desugared
@@ -200,35 +201,35 @@ substPeg ty x (Peg ab pty a) = Peg (substAb ty x ab) (subst ty x pty) a
 substPort :: ValueType Desugared -> Identifier -> Port Desugared -> Port Desugared
 substPort ty x (Port adjs pty a) = Port (map (substAdj ty x) adjs) (subst ty x pty) a
 
-substEVar :: Ab Desugared -> Identifier -> ValueType Desugared -> ValueType Desugared
+substEVar :: Ability Desugared -> Identifier -> ValueType Desugared -> ValueType Desugared
 substEVar ab x (DTTy dt ts a) = DTTy dt (map (substEVarTypeArg ab x) ts) a
 substEVar ab x (SCTy cty a) = SCTy (substEVarCompType ab x cty) a
 substEVar _ _ ty = ty
 
 -- substitute "ab" for "x" in AB
-substEVarAb :: Ab Desugared -> Identifier -> Ab Desugared -> Ab Desugared
-substEVarAb ab@(Ab v m' _) x (Ab (AbFVar y a) (InterfaceMap m ann') ann) | x == y =
-  Ab v m'' ann
+substEVarAb :: Ability Desugared -> Identifier -> Ability Desugared -> Ability Desugared
+substEVarAb ab@(MkAbility v m' _) x (MkAbility (AbilityMode.FlexibleVar y a) (InterfaceMap m ann') ann) | x == y =
+  MkAbility v m'' ann
   where m'' = plusInterfaceMap m' (InterfaceMap (fmap (fmap (map (substEVarTypeArg ab x))) m) ann')
-substEVarAb ab x (Ab v (InterfaceMap m a') a) = Ab v (InterfaceMap (M.map (fmap (map (substEVarTypeArg ab x))) m) a') a
+substEVarAb ab x (MkAbility v (InterfaceMap m a') a) = MkAbility v (InterfaceMap (M.map (fmap (map (substEVarTypeArg ab x))) m) a') a
 
-substEVarTypeArg :: Ab Desugared -> Identifier -> TypeArg Desugared -> TypeArg Desugared
+substEVarTypeArg :: Ability Desugared -> Identifier -> TypeArg Desugared -> TypeArg Desugared
 substEVarTypeArg ab x (VArg t a)  = VArg (substEVar ab x t) a
 substEVarTypeArg ab x (EArg ab' a) = EArg (substEVarAb ab x ab') a
 
-substEVarAdj :: Ab Desugared -> Identifier -> Adjustment Desugared -> Adjustment Desugared
+substEVarAdj :: Ability Desugared -> Identifier -> Adjustment Desugared -> Adjustment Desugared
 substEVarAdj ab x (ConsAdj y ts a) = ConsAdj y (map (substEVarTypeArg ab x) ts) a
 substEvarAdj ab x (AdaptorAdj adp a) = AdaptorAdj adp a
 
-substEVarCompType :: Ab Desugared -> Identifier -> CompType Desugared -> CompType Desugared
+substEVarCompType :: Ability Desugared -> Identifier -> CompType Desugared -> CompType Desugared
 substEVarCompType ab x (CompType ps peg a) =
   CompType (map (substEVarPort ab x) ps) (substEVarPeg ab x peg) a
 
-substEVarPeg :: Ab Desugared -> Identifier -> Peg Desugared -> Peg Desugared
+substEVarPeg :: Ability Desugared -> Identifier -> Peg Desugared -> Peg Desugared
 substEVarPeg ab' x (Peg ab pty a) =
   Peg (substEVarAb ab' x ab) (substEVar ab' x pty) a
 
-substEVarPort :: Ab Desugared -> Identifier -> Port Desugared -> Port Desugared
+substEVarPort :: Ability Desugared -> Identifier -> Port Desugared -> Port Desugared
 substEVarPort ab x (Port adjs pty a) =
   Port (map (substEVarAdj ab x) adjs) (substEVar ab x pty) a
 

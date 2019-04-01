@@ -9,13 +9,16 @@ import BwdFwd
 import Syntax
 import FreshNames
 
+import qualified Syntax.AbilityMode as AbilityMode
+import qualified Syntax.Adaptor as Adaptor
+
 import Shonky.Renaming
 
 type Desugar = StateT DState (FreshMT Identity)
 
 type IdTVMap = M.Map Identifier (ValueType Desugared)
 
-type IdAbModMap = M.Map Identifier (AbMod Desugared)
+type IdAbModMap = M.Map Identifier (AbilityMode Desugared)
 
 data DState = MkDState { env :: IdTVMap
                        , abModEnv :: IdAbModMap }
@@ -78,7 +81,7 @@ desugarDataType (MkDataType dt ps ctrs a) = do
   -- map old value type variables to fresh ones
   putEnv $ M.fromList [(x, RTVar x' a') | ((x, VT), x') <- zip ps xs']
   -- map old effect type variables to fresh ones
-  putAbModEnv $ M.fromList [(x, AbRVar x' a') | ((x, ET), x') <- zip ps xs']
+  putAbModEnv $ M.fromList [(x, AbilityMode.RigidVar x' a') | ((x, ET), x') <- zip ps xs']
   -- [(new var name, val or eff)]
   let ps' = [(x', k) | ((_, k), x') <- zip ps xs']
    -- the following will only use but not modify the DState
@@ -94,7 +97,7 @@ desugarInterface (MkInterface itf ps cmds a) = do
   -- generate fresh ids for type variables
   xs' <- mapM (freshRigid . fst) ps
   let env' = M.fromList [(x, RTVar x' a') | ((x, VT), x') <- zip ps xs']        -- map old value type variables to fresh ones
-  let abModEnv' = M.fromList [(x, AbRVar x' a') | ((x, ET), x') <- zip ps xs']  -- map old effect type variables to fresh ones
+  let abModEnv' = M.fromList [(x, AbilityMode.RigidVar x' a') | ((x, ET), x') <- zip ps xs']  -- map old effect type variables to fresh ones
   -- [(new var name, val or eff)]
   let ps' = [(x', k) | ((_, k), x') <- zip ps xs']
   -- before desugaring each cmd, we need to reset the env
@@ -125,7 +128,7 @@ desugarCmd (Cmd cmd  ps                 xs       y a) = do
   -- map old value type variables to fresh ones
   putEnv $ M.fromList [(p, RTVar p' a') | ((p, VT), p') <- zip ps ps']
   -- map old effect type variables to fresh ones
-  putAbModEnv $ M.fromList [(p, AbRVar p' a') | ((p, ET), p') <- zip ps ps']
+  putAbModEnv $ M.fromList [(p, AbilityMode.RigidVar p' a') | ((p, ET), p') <- zip ps ps']
   -- [(new var name, val or eff)]
   let ps'' = [(p', k) | ((_, k), p') <- zip ps ps']
   xs' <- mapM desugarValueType xs
@@ -182,19 +185,23 @@ desugarPeg :: Peg Refined -> Desugar (Peg Desugared)
 desugarPeg (Peg ab ty a) = Peg <$> desugarAb ab <*> desugarValueType ty <*> pure (refToDesug a)
 
 -- nothing happens on this level
-desugarAb :: Ab Refined -> Desugar (Ab Desugared)
-desugarAb (Ab v itfMap a) = Ab <$> desugarAbMod v <*> desugarInterfaceMap itfMap <*> pure (refToDesug a)
+desugarAb :: Ability Refined -> Desugar (Ability Desugared)
+desugarAb (MkAbility v itfMap a) =
+  MkAbility
+  <$> desugarAbMod v
+  <*> desugarInterfaceMap itfMap
+  <*> pure (refToDesug a)
 
 -- explicit desugaring:
 -- + replace effect type variables by corresponding MkAbRVar's of abModEnv,
 --   generate new fresh one and add if not in env yet
-desugarAbMod :: AbMod Refined -> Desugar (AbMod Desugared)
-desugarAbMod (EmpAb a) = return $ EmpAb (refToDesug a)
-desugarAbMod (AbVar x a) =
+desugarAbMod :: AbilityMode Refined -> Desugar (AbilityMode Desugared)
+desugarAbMod (AbilityMode.Empty a) = return $ AbilityMode.Empty (refToDesug a)
+desugarAbMod (AbilityMode.Var x a) =
   do env <- getAbModEnv
      case M.lookup x env of
        Nothing -> do n <- fresh
-                     let var = AbRVar (x ++ "$r" ++ show n) (refToDesug a)
+                     let var = AbilityMode.RigidVar (x ++ "$r" ++ show n) (refToDesug a)
                      putAbModEnv $ M.insert x var env
                      return var
        Just var -> return var
@@ -255,7 +262,7 @@ desugarUse (Adapted rs t a) =
 -- explicit refinements:
 -- + Rem, Copy and Swap gets desugared to GeneralAdaptor
 desugarAdaptor :: Adaptor Refined -> Desugar (Adaptor Desugared)
-desugarAdaptor (Adp x ns k a) = return $ Adp x ns k (refToDesug a)
+desugarAdaptor (Adaptor.Adp x ns k a) = return $ Adaptor.Adp x ns k (refToDesug a)
 
 desugarOperator :: Operator Refined -> Desugar (Operator Desugared)
 desugarOperator (Mono x a) = return $ Mono x (refToDesug a)

@@ -25,6 +25,8 @@ import qualified Data.ByteString.Char8 as Char8
 
 import BwdFwd
 import Syntax
+import qualified Syntax.AbilityMode as AbilityMode
+import qualified Syntax.Adaptor as Adaptor
 import ParserCommon
 import Debug
 
@@ -168,11 +170,11 @@ ctypeNew :: MonadicParsing m => m (CompType Raw)
 ctypeNew = do ab <- abExplicit
               sndPart ab
   where
-  sndPart :: MonadicParsing m => Ab Raw -> m (CompType Raw)
+  sndPart :: MonadicParsing m => Ability Raw -> m (CompType Raw)
   sndPart ab = braces (attachLoc $ do ports <- many (try (portP <* symbol "->"))
                                       peg <- pegSndPart ab
                                       return $ CompType ports peg)
-  pegSndPart :: MonadicParsing m => Ab Raw -> m (Peg Raw)
+  pegSndPart :: MonadicParsing m => Ability Raw -> m (Peg Raw)
   pegSndPart ab = attachLoc $ Peg ab <$> vtype
 
 -- Old syntax {... -> [...]A}, does not need to have explicit [...]
@@ -234,29 +236,29 @@ itfInstance = do x <- identifier
                  ts <- many tyArg
                  return (x, ts)
 
-ab :: MonadicParsing m => m (Ab Raw)
+ab :: MonadicParsing m => m (Ability Raw)
 ab = do mxs <- optional abExplicit
         case mxs of
           Nothing -> provideLoc $ \a ->
-            return $ Ab (AbVar "£" a) (InterfaceMap M.empty a) a
+            return $ MkAbility (AbilityMode.Var "£" a) (InterfaceMap M.empty a) a
           Just ab -> return ab
 
-abExplicit :: MonadicParsing m => m (Ab Raw)
+abExplicit :: MonadicParsing m => m (Ability Raw)
 abExplicit = brackets abBody
 
 -- 0 | 0|Interfaces | E|Interfaces | Interfaces
-abBody :: MonadicParsing m => m (Ab Raw)
+abBody :: MonadicParsing m => m (Ability Raw)
 abBody = provideLoc $ \a ->
            -- closed ability: [0] or [0 | i_1, ... i_n]
            (do symbol "0"
                m <- option (InterfaceMap M.empty a) (symbol "|" *> itfInstances)
-               return $ Ab (EmpAb a) m a) <|>
+               return $ MkAbility (AbilityMode.Empty a) m a) <|>
            -- open ability:   [i_1, ..., i_n] (implicitly e := £) or
            -- [e | i_1, ..., i_n]
-           (do e <- option (AbVar "£" a)
-                      (try $ AbVar <$> identifier <* symbol "|" <*> pure a)
+           (do e <- option (AbilityMode.Var "£" a)
+                      (try $ AbilityMode.Var <$> identifier <* symbol "|" <*> pure a)
                m <- itfInstances
-               return $ Ab e m a)
+               return $ MkAbility e m a)
 
 -- This parser gives higher precedence to MkDTTy when coming across "X"
 -- E.g., the type "X" becomes   MkDTTy "X" []   (instead of MkTVar "X")
@@ -414,8 +416,8 @@ adaptor = attachLoc $ do
                 symbol "->"
                 right <- many identifier
                 symbol ")"
-                return $ RawAdp x liat left right)
-             <|> return (RawAdp x "s" ["x"] ["s"])
+                return $ Adaptor.Raw x liat left right)
+             <|> return (Adaptor.Raw x "s" ["x"] ["s"])
 
 adaptor' :: MonadicParsing m => m (Adaptor Raw)
 adaptor' = provideLoc $ \a -> do
@@ -428,7 +430,7 @@ adaptor' = provideLoc $ \a -> do
     right <- many identifier
     symbol ")"
     return (x, liat, left, right)
-  return $ RawAdp x liat left right a
+  return $ Adaptor.Raw x liat left right a
   -- TODO: LC: make "try" block more minimal...
 
 idUse :: MonadicParsing m => m (Use Raw)
