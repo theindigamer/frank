@@ -45,7 +45,7 @@ refine' (MkProgram xs) = do
   initialiseRState dts itfs itfAls hdrSigs
   -- Refine top level terms
   putTopLevelCtxt Datatype
-  dtTerms <- mapM refineDataT dts
+  dtTerms <- mapM refineDataType dts
   putTopLevelCtxt Interface
   itfTerms <- mapM refineInterface itfs
   putTopLevelCtxt InterfaceAlias
@@ -63,8 +63,8 @@ refine' (MkProgram xs) = do
 
 -- Explicit refinements:
 -- + data type has unique effect & type variables
-refineDataT :: DataT Raw -> Refine (TopTerm Refined)
-refineDataT d@(DT dt ps ctrs a) =
+refineDataType :: DataType Raw -> Refine (TopTerm Refined)
+refineDataType d@(MkDataType dt ps ctrs a) =
  --         data dt p_1 ... p_m = ctr_1 | ... | ctr_n
   if uniqueIds (map fst ps) then
     do let tvs = [x | (x, VT) <- ps] -- val ty vars
@@ -75,7 +75,7 @@ refineDataT d@(DT dt ps ctrs a) =
        ctrs' <- mapM refineCtr ctrs
        putEVSet S.empty                                -- reset
        putTMap M.empty                                 -- reset
-       return $ DataTerm (DT dt ps ctrs' a') a'
+       return $ DataTerm (MkDataType dt ps ctrs' a') a'
   else throwError $ errorRefDuplParamData d
   where a' = rawToRef a
 
@@ -325,7 +325,7 @@ refineTypeArg (VArg t a) = VArg <$> refineValueType t <*> pure (rawToRef a)
 refineTypeArg (EArg ab a) = EArg <$> refineAb ab <*> pure (rawToRef a)
 
 refineMH :: [MultiHandlerClause Raw] -> MultiHandlerSignature Raw -> Refine (TopTerm Refined)
-refineMH xs (MkSig ident ty a) = do
+refineMH xs (MkMultiHandlerSignature ident ty a) = do
   cs <- mapM refineMultiHandlerClause ys
   ty' <- refineCompType ty
   return $ DefTerm (MkDef ident ty' cs a') a'
@@ -334,7 +334,7 @@ refineMH xs (MkSig ident ty a) = do
     a' = rawToRef a
 
 refineMultiHandlerClause :: MultiHandlerClause Raw -> Refine (Clause Refined)
-refineMultiHandlerClause (MkMHClause _ cls a) = refineClause cls
+refineMultiHandlerClause (MkMultiHandlerClause _ cls a) = refineClause cls
 
 -- Explicit refinements:
 -- + id "x" is refined to 1) DataCon:          0-ary constructor if matching
@@ -418,10 +418,10 @@ refineAdaptor adp@(RawAdp x liat left right a) = do
 refineTerm :: Term Raw -> Refine (Term Refined)
 refineTerm (Let x t1 t2 a) =
   do s1 <- refineTerm t1
-     s2 <- refineTerm $ SC (SComp [MkClause [VPat (VarPat x a) a] t2 a] a) a
+     s2 <- refineTerm $ SC (Suspension [MkClause [VPat (VarPat x a) a] t2 a] a) a
      return $ Use (App (Op (Poly "case" a') a') [s1, s2] a') a'
   where a' = rawToRef a
-refineTerm (SC x a) = do x' <- refineSComp x
+refineTerm (SC x a) = do x' <- refineSuspension x
                          return $ SC x' (rawToRef a)
 refineTerm (StrTerm x a) = return $ StrTerm x (rawToRef a)
 refineTerm (IntTerm x a) = return $ IntTerm x (rawToRef a)
@@ -442,9 +442,10 @@ refineTerm (Use u a) = do u' <- refineUse u
                             Left use -> return $ Use use (rawToRef a)
                             Right tm -> return tm
 
-refineSComp :: SComp Raw -> Refine (SComp Refined)
-refineSComp (SComp xs a) = do xs' <- mapM refineClause xs
-                              return $ SComp xs' (rawToRef a)
+refineSuspension :: Suspension Raw -> Refine (Suspension Refined)
+refineSuspension (Suspension xs a) = do
+  xs' <- mapM refineClause xs
+  return $ Suspension xs' (rawToRef a)
 
 refineClause :: Clause Raw -> Refine (Clause Refined)
 refineClause (MkClause ps tm a) = do
@@ -499,12 +500,12 @@ refineVPat (ListPat ps a) =
          (DataPat "nil" [] (rawToRef a))
          ps'
 
-initialiseRState :: [DataT Raw] -> [Interface Raw] -> [InterfaceAlias Raw] -> [MultiHandlerSignature Raw] -> Refine ()
+initialiseRState :: [DataType Raw] -> [Interface Raw] -> [InterfaceAlias Raw] -> [MultiHandlerSignature Raw] -> Refine ()
 initialiseRState dts itfs itfAls hdrs =
   do i <- getRState
      itfs'   <- foldM addInterface      (interfaces i)       itfs
      itfAls' <- foldM addInterfaceAlias (interfaceAliases i) itfAls
-     dts'    <- foldM addDataT    (datatypes i)        dts
+     dts'    <- foldM addDataType    (datatypes i)        dts
      hdrs'   <- foldM addMH       (handlers i)         hdrs
      cmds'   <- foldM addCmd      (cmds i)             (concatMap getCmds itfs)
      ctrs'   <- foldM addCtr      (ctrs i)             (concatMap getCtrs dts)
@@ -528,13 +529,13 @@ makeIntBinCmp a c = MkDef [c] (CompType [Port [] (IntTy a) a
 
 {-- The initial state for the refinement pass. -}
 
-builtinDataTs :: [DataT Refined]
-builtinDataTs = [DT "List" [("X", VT)] [Ctr "cons" [TVar "X" b
+builtinDataTs :: [DataType Refined]
+builtinDataTs = [MkDataType "List" [("X", VT)] [Ctr "cons" [TVar "X" b
                                                        ,DTTy "List" [VArg (TVar "X" b) b] b] b
                                          ,Ctr "nil" [] b] b
-                ,DT "Unit" [] [Ctr "unit" [] b] b
-                ,DT "Bool" [] [Ctr "true" [] b, Ctr "false" [] b] b
-                ,DT "Ref" [("X", VT)] [] b]
+                , MkDataType "Unit" [] [Ctr "unit" [] b] b
+                , MkDataType "Bool" [] [Ctr "true" [] b, Ctr "false" [] b] b
+                , MkDataType "Ref" [("X", VT)] [] b]
   where b = Refined BuiltIn
 
 builtinInterfaces :: [Interface Refined]
@@ -596,7 +597,7 @@ builtinMHs = map add builtinMultiHandlerDefinitions
 
 builtinDTs :: DataTypeMap
 builtinDTs = foldl add M.empty builtinDataTs
-  where add m (DT id ps _ a) = M.insert id ps m
+  where add m (MkDataType id ps _ a) = M.insert id ps m
 
 builtinIFs :: IFMap
 builtinIFs = foldl add M.empty builtinInterfaces
@@ -636,7 +637,7 @@ collectCtrs (Ctr ctr _ a : xs) = ctr : collectCtrs xs
 collectCtrs [] = []
 
 collectMHNames :: [MultiHandlerSignature Raw] -> [Identifier]
-collectMHNames (MkSig hdr _ a : xs) = hdr : collectMHNames xs
+collectMHNames (MkMultiHandlerSignature hdr _ a : xs) = hdr : collectMHNames xs
 collectMHNames [] = []
 
 -- Add the id if not already present
@@ -650,8 +651,8 @@ addInterface m (MkInterface x ps _ a) = return $ M.insert x ps m
 addInterfaceAlias :: IFAliasesMap -> InterfaceAlias Raw -> Refine IFAliasesMap
 addInterfaceAlias m (MkInterfaceAlias x ps itfMap a) = return $ M.insert x (ps, itfMap) m
 
-addDataT :: DataTypeMap -> DataT Raw -> Refine DataTypeMap
-addDataT m (DT x ps _ a) =
+addDataType :: DataTypeMap -> DataType Raw -> Refine DataTypeMap
+addDataType m (MkDataType x ps _ a) =
   if M.member x m then
     throwError $ errorRefDuplTopTerm "datatype" x (getSource a)
   else return $ M.insert x ps m
@@ -664,7 +665,7 @@ addCmd xs (Cmd x _ ts _ a) = addEntry xs x (length ts) "duplicate command: "
 
 -- takes map handler-id -> #-of-ports and adds another handler entry
 addMH :: [IPair] -> MultiHandlerSignature Raw -> Refine [IPair]
-addMH xs (MkSig x (CompType ps p _) _) =
+addMH xs (MkMultiHandlerSignature x (CompType ps p _) _) =
   addEntry xs x (length ps) "duplicate operator:"
 
 uniqueIds :: [Identifier] -> Bool

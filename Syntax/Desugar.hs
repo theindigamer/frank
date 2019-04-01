@@ -64,14 +64,14 @@ desugar (MkProgram xs) = MkProgram $ evalFresh m
 
 -- no explicit refinements
 desugarTopTerm :: TopTerm Refined -> Desugar (TopTerm Desugared)
-desugarTopTerm (DataTerm dt a) = DataTerm <$> desugarDataT dt <*> pure (refToDesug a)
+desugarTopTerm (DataTerm dt a) = DataTerm <$> desugarDataType dt <*> pure (refToDesug a)
 desugarTopTerm (InterfaceTerm itf a) = InterfaceTerm <$> desugarInterface itf <*> pure (refToDesug a)
 desugarTopTerm (DefTerm def a) = DefTerm <$> desugarMultiHandlerDefinition def <*> pure (refToDesug a)
 
 -- explicit refinements:
 -- + type variables get fresh ids
-desugarDataT :: DataT Refined -> Desugar (DataT Desugared)
-desugarDataT (DT dt ps ctrs a) = do
+desugarDataType :: DataType Refined -> Desugar (DataType Desugared)
+desugarDataType (MkDataType dt ps ctrs a) = do
   -- id val & eff ty vars constructors
   -- generate fresh ids for ty vars
   xs' <- mapM (freshRigid . fst) ps
@@ -84,7 +84,7 @@ desugarDataT (DT dt ps ctrs a) = do
    -- the following will only use but not modify the DState
   ctrs' <- mapM desugarCtr ctrs
   -- ps' contains new fresh names
-  return $ DT dt ps' ctrs' a'
+  return $ MkDataType dt ps' ctrs' a'
   where a' = refToDesug a
 
 -- explicit refinements:
@@ -218,7 +218,7 @@ desugarClause (MkClause ps tm a) = do
   return $ MkClause ps' tm' (refToDesug a)
 
 desugarTerm :: Term Refined -> Desugar (Term Desugared)
-desugarTerm (SC x a) = SC <$> desugarSComp x <*> pure (refToDesug a)
+desugarTerm (SC x a) = SC <$> desugarSuspension x <*> pure (refToDesug a)
 desugarTerm (StrTerm s a) = return $ StrTerm s (refToDesug a)
 desugarTerm (IntTerm n a) = return $ IntTerm n (refToDesug a)
 desugarTerm (CharTerm c a) = return $ CharTerm c (refToDesug a)
@@ -241,9 +241,9 @@ desugarVPat (IntPat i a) = return $ IntPat i (refToDesug a)
 desugarVPat (CharPat c a) = return $ CharPat c (refToDesug a)
 desugarVPat (StrPat s a) = return $ StrPat s (refToDesug a)
 
-desugarSComp :: SComp Refined -> Desugar (SComp Desugared)
-desugarSComp (SComp xs a) =
-  SComp <$> mapM desugarClause xs <*> pure (refToDesug a)
+desugarSuspension :: Suspension Refined -> Desugar (Suspension Desugared)
+desugarSuspension (Suspension xs a) =
+  Suspension <$> mapM desugarClause xs <*> pure (refToDesug a)
 
 desugarUse :: Use Refined -> Desugar (Use Desugared)
 desugarUse (App use xs a) =

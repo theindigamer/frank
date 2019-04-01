@@ -187,8 +187,8 @@ initContextual (MkProgram ttms) =
   where -- data dt p_1 ... p_n = ctr_1 x_11 ... x_1m
         --                     | ...
         -- For each ctr_i add to ctrMap: ctr_i -> (dt, dt-ty-vars, xs_i)
-        f :: DataT Desugared -> Contextual ()
-        f (DT dt ps ctrs _) =
+        f :: DataType Desugared -> Contextual ()
+        f (MkDataType dt ps ctrs _) =
           let ps' = map tyVar2rigTyVarArg ps in
             mapM_ (\(Ctr ctr xs _) -> addCtr dt ctr ps' xs) ctrs
 

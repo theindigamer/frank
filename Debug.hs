@@ -61,8 +61,8 @@ ifDebugTypeCheckOnThen = when (isDebugTypeCheckOn ())
 errorRefNoMainFunction :: String
 errorRefNoMainFunction = "no main function defined"
 
-errorRefDuplParamData :: DataT Raw -> String
-errorRefDuplParamData dt@(DT x _ _ _) = "duplicate parameter in datatype " ++ x ++ " (" ++ show (ppSourceOf dt) ++ ")"
+errorRefDuplParamData :: DataType Raw -> String
+errorRefDuplParamData dt@(MkDataType x _ _ _) = "duplicate parameter in datatype " ++ x ++ " (" ++ show (ppSourceOf dt) ++ ")"
 
 errorRefDuplParamInterface :: Interface Raw -> String
 errorRefDuplParamInterface itf@(MkInterface x _ _ _) =
@@ -295,14 +295,14 @@ ppProgram :: (Show a, HasSource a) => Program a -> PP.Doc
 ppProgram (MkProgram tts) = foldl (PP.$+$ ) PP.empty (map ppTopTerm tts)
 
 ppTopTerm :: (Show a, HasSource a) => TopTerm a -> PP.Doc
-ppTopTerm (DataTerm dt _) = ppDataT dt
+ppTopTerm (DataTerm dt _) = ppDataType dt
 ppTopTerm (InterfaceTerm itf _) = ppInterface itf
 ppTopTerm (SigTerm sig _) = text $ show sig
 ppTopTerm (ClauseTerm cls _) = text $ show cls
 ppTopTerm (DefTerm def _) = ppMultiHandlerDefinition def
 
-ppDataT :: (Show a, HasSource a) => DataT a -> PP.Doc
-ppDataT (DT id tyVars ctrs a) = text "data" <+>
+ppDataType :: (Show a, HasSource a) => DataType a -> PP.Doc
+ppDataType (MkDataType id tyVars ctrs a) = text "data" <+>
                               text id <+>
                               sep (map (text . show) tyVars) <+>
                               text "=" <+>
@@ -420,7 +420,7 @@ ppSourceOf :: (HasSource a) => a -> PP.Doc
 ppSourceOf x = ppSource (getSource x)
 
 ppTerm :: (Show a, HasSource a) => Term a -> PP.Doc
-ppTerm (SC sc _) = ppSComp sc
+ppTerm (SC sc _) = ppSuspension sc
 ppTerm (StrTerm str _) = text "{" <+> text str <+> text "}"
 ppTerm (IntTerm n _) = text (show n)
 ppTerm (CharTerm c _) = text (show c)
@@ -429,8 +429,8 @@ ppTerm (TermSeq t1 t2 _) = PP.parens $ ppTerm t1 <+> text "; " <+> ppTerm t2
 ppTerm (Use u _) = PP.parens $ ppUse u
 ppTerm (DCon dc _) = PP.parens $ ppDataCon dc
 
-ppSComp :: (Show a, HasSource a) => SComp a -> PP.Doc
-ppSComp (SComp cls _) = text "{" <+> sep (map (ppClause "") cls) <+> text "}"
+ppSuspension :: (Show a, HasSource a) => Suspension a -> PP.Doc
+ppSuspension (Suspension cls _) = text "{" <+> sep (map (ppClause "") cls) <+> text "}"
 
 ppUse :: (Show a, HasSource a) => Use a -> PP.Doc
 ppUse (RawIdentifier x _) = text x

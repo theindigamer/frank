@@ -16,17 +16,20 @@ import qualified Data.Set as S
 import BwdFwd
 import Syntax
 
--- Node container for the graph algorithm
-data Node = DtNode (DataT Raw) | InterfaceNode (Interface Raw) | InterfaceAlNode (InterfaceAlias Raw)
+-- | Node container for the graph algorithm
+data Node
+  = DtNode (DataType Raw)
+  | InterfaceNode (Interface Raw)
+  | InterfaceAlNode (InterfaceAlias Raw)
   deriving (Show, Eq)
 
--- Used as a result of inspecting a node on whether it has an
+-- | Used as a result of inspecting a node on whether it has an
 -- (implicit/explicit) [£]
-data HasEps = HasEps |           -- "Yes" with certainty
-              HasEpsIfAny [Node] -- "Yes" if any of the given nodes
-                                 --   (definitions) have implicit [£]
-                                 -- (n.b. hasNoEps = HasEpsIfAny []
-                                 --   corresponds to "No")
+data HasEps
+  = HasEps             -- ^ "Yes" with certainty
+  | HasEpsIfAny [Node] -- ^ "Yes" if any of the given nodes (definitions) have
+                       --   implicit [£]
+                       --   (n.b. hasNoEps = HasEpsIfAny [] corresponds to "No")
   deriving (Show, Eq)
 
 hasNoEps :: HasEps
@@ -42,13 +45,13 @@ hasNoEps = HasEpsIfAny []
 -- [£] for the parent).
 -- Finally, all definitions that are decided to have [£], but do not yet
 -- explicitly have it, are added an additional [£] eff var.
-concretiseEps :: [DataT Raw] -> [Interface Raw] -> [InterfaceAlias Raw] -> ([DataT Raw], [Interface Raw], [InterfaceAlias Raw])
+concretiseEps :: [DataType Raw] -> [Interface Raw] -> [InterfaceAlias Raw] -> ([DataType Raw], [Interface Raw], [InterfaceAlias Raw])
 concretiseEps dts itfs itfAls =
   let posNodes = decideGraph (nodes, [], [])
       posDts    = [getIdentifier x | DtNode x    <- posNodes]
       posInterfaces   = [getIdentifier x | InterfaceNode x   <- posNodes]
       posInterfaceAls = [getIdentifier x | InterfaceAlNode x <- posNodes] in
-  (map (concretiseEpsInDataT posDts) dts,
+  (map (concretiseEpsInDataType posDts) dts,
    map (concretiseEpsInInterface   posInterfaces) itfs,
    map (concretiseEpsInInterfaceAl posInterfaceAls) itfAls)
   where
@@ -122,12 +125,12 @@ concretiseEps dts itfs itfAls =
      now in hasEpsValueType -}
 
   hasEpsNode :: Node -> HasEps
-  hasEpsNode node = case node of (DtNode dt) -> hasEpsDataT dt
+  hasEpsNode node = case node of (DtNode dt) -> hasEpsDataType dt
                                  (InterfaceNode itf) -> hasEpsInterface itf
                                  (InterfaceAlNode itfAl) -> hasEpsInterfaceAl itfAl
 
-  hasEpsDataT :: DataT Raw -> HasEps
-  hasEpsDataT (DT _ ps ctrs a) = if ("£", ET) `elem` ps then HasEps
+  hasEpsDataType :: DataType Raw -> HasEps
+  hasEpsDataType (MkDataType _ ps ctrs a) = if ("£", ET) `elem` ps then HasEps
                                  else let tvs = [x | (x, VT) <- ps] in
                                       anyHasEps (map (hasEpsCtr tvs) ctrs)
 
@@ -172,7 +175,7 @@ concretiseEps dts itfs itfAls =
         in anyHasEps (dtHE ++ argsHE)
       Nothing -> hasNoEps
     where isDtWithNArgs :: Node -> Int -> Bool
-          isDtWithNArgs (DtNode (DT _ ps _ _)) n = length ps == n
+          isDtWithNArgs (DtNode (MkDataType _ ps _ _)) n = length ps == n
 
 
   hasEpsCompType :: [Identifier] -> CompType Raw -> HasEps
@@ -220,8 +223,8 @@ concretiseEps dts itfs itfAls =
   hasEpsTypeArg tvs (VArg t _)  = hasEpsValueType tvs t
   hasEpsTypeArg tvs (EArg ab _) = hasEpsAb tvs ab
 
-concretiseEpsInDataT :: [Identifier] -> DataT Raw -> DataT Raw
-concretiseEpsInDataT posIds (DT dt ps ctrs a) = DT dt ps' ctrs a where
+concretiseEpsInDataType :: [Identifier] -> DataType Raw -> DataType Raw
+concretiseEpsInDataType posIds (MkDataType dt ps ctrs a) = MkDataType dt ps' ctrs a where
   ps' = if ("£", ET) `notElem` ps && dt `elem` posIds then ps ++ [("£", ET)] else ps
 
 concretiseEpsInInterface :: [Identifier] -> Interface Raw -> Interface Raw

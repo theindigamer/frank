@@ -50,13 +50,13 @@ def = attachLoc (DataTerm <$> dataDef <|>
                  InterfaceAliasTerm <$> itfAliasDef <|>
                  InterfaceTerm <$> itfDef)
 
-dataDef :: MonadicParsing m => m (DataT Raw)
+dataDef :: MonadicParsing m => m (DataType Raw)
 dataDef = attachLoc $ do reserved "data"
                          name <- identifier
                          ps <- many tyVar
                          symbol "="
                          cs <- localIndentation Gt ctrList
-                         return $ DT name ps cs
+                         return $ MkDataType name ps cs
 
 tyVar :: MonadicParsing m => m (Identifier, Kind)
 tyVar = (,ET) <$> brackets evar
@@ -75,7 +75,7 @@ ctr :: MonadicParsing m => m (Ctr Raw)
 ctr = attachLoc $ Ctr <$> identifier <*> many vtype'
 
 handlerTopSig :: MonadicParsing m => m (MultiHandlerSignature Raw)
-handlerTopSig = attachLoc $ MkSig
+handlerTopSig = attachLoc $ MkMultiHandlerSignature
   <$> try (identifier <* symbol ":") -- try: commit after colon
   <*> sigType
 
@@ -119,7 +119,7 @@ handlerTopCls = provideLoc $ \a -> do
     symbol "="
     return (name, ps)
   seq <- localIndentation Gt tm
-  return $ MkMHClause name (MkClause ps seq a) a
+  return $ MkMultiHandlerClause name (MkClause ps seq a) a
 
 itfDef :: MonadicParsing m => m (Interface Raw)
 itfDef = attachLoc $ do
@@ -437,10 +437,10 @@ idUse = attachLoc $ RawIdentifier <$> identifier
 listTerm :: MonadicParsing m => m [Term Raw]              -- [t_1, ..., t_n]
 listTerm = brackets (sepBy tm (symbol ","))
 
-suspComp :: MonadicParsing m => m (SComp Raw)
+suspComp :: MonadicParsing m => m (Suspension Raw)
 suspComp = attachLoc $ localIndentation Gt $ absoluteIndentation $
              do cs <- braces $ sepBy anonymousCls (symbol "|")
-                return $ SComp cs
+                return $ Suspension cs
 
 anonymousCls :: MonadicParsing m => m (Clause Raw)
 anonymousCls = attachLoc $ MkClause <$> choice [try patterns, pure []] <*> tm

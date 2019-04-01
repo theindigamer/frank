@@ -257,7 +257,7 @@ inferUse adpd@(Adapted adps t a) =
 -- 2nd major TC function besides "check": Check that term (construction) has
 -- given type
 checkTerm :: Term Desugared -> ValueType Desugared -> Contextual (Term Desugared)
-checkTerm (SC sc a) ty = SC <$> checkSComp sc ty <*> pure a
+checkTerm (SC sc a) ty = SC <$> checkSuspension sc ty <*> pure a
 checkTerm tm@(StrTerm _ a) ty = unify (desugaredStrTy a) ty >> return tm
 checkTerm tm@(IntTerm _ a) ty = unify (IntTy a) ty >> return tm
 checkTerm tm@(CharTerm _ a) ty = unify (CharTy a) ty >> return tm
@@ -290,13 +290,13 @@ checkTerm (DCon (DataCon k xs a') a) ty =
 --      - Check against a type of the right shape (of fresh flex. var.s which
 --        then get bound via checking
 --      - Unify the obtained type for cls_i with overall type ty
-checkSComp :: SComp Desugared -> ValueType Desugared -> Contextual (SComp Desugared)               -- Comp rule
-checkSComp (SComp xs a) (SCTy ty@(CompType ps q _) _) = do
+checkSuspension :: Suspension Desugared -> ValueType Desugared -> Contextual (Suspension Desugared)               -- Comp rule
+checkSuspension (Suspension xs a) (SCTy ty@(CompType ps q _) _) = do
   xs' <- mapM (checkCls ty) xs
-  return (SComp xs' a)
-checkSComp (SComp xs a) ty = do
+  return (Suspension xs' a)
+checkSuspension (Suspension xs a) ty = do
   xs' <- mapM (checkCls' ty) xs
-  return (SComp xs' a)
+  return (Suspension xs' a)
   where
     checkCls' :: ValueType Desugared -> Clause Desugared -> Contextual (Clause Desugared)
     checkCls' ty cls@(MkClause pats tm a) = do

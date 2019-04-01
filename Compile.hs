@@ -84,8 +84,8 @@ compileTopTerm _ = return [] -- interfaces are ignored for now. add to a map?
 -- a constructor is then just a cons cell of its arguments
 -- how to do pattern matching correctly? maybe they are just n-adic functions
 -- too? pure ones are just pure functions, etc.
-compileDatatype :: DataT Desugared -> Compile [S.Def S.Exp]
-compileDatatype (DT _ _ xs _) = mapM compileCtr xs
+compileDatatype :: DataType Desugared -> Compile [S.Def S.Exp]
+compileDatatype (MkDataType _ _ xs _) = mapM compileCtr xs
 
 -- nonNullary :: [Ctr a] -> Compile [Ctr a]
 -- nonNullary ((MkCtr id []) : xs) = do addAtom id
@@ -158,7 +158,7 @@ compileVPat ((StrPat s a) :: ValuePat Desugared) = compileVPat (compileStrPat s)
 compileVPat (CharPat c _) = return $ S.VPX [Left c]
 
 compileTerm :: Term Desugared -> Compile S.Exp
-compileTerm (SC sc _) = compileSComp sc
+compileTerm (SC sc _) = compileSuspension sc
 -- compileTerm MkLet = return $ S.EV "let"
 compileTerm (StrTerm s a) = compileDataCon (f s) where
   f :: String -> DataCon Desugared
@@ -189,8 +189,8 @@ compileDataCon :: DataCon Desugared -> Compile S.Exp
 compileDataCon (DataCon id xs _) = do xs' <- mapM compileTerm xs
                                       return (S.EV id S.:$ xs')
 
-compileSComp :: SComp Desugared -> Compile S.Exp
-compileSComp (SComp xs _) = S.EF <$> pure [([], [])] <*> mapM compileClause xs
+compileSuspension :: Suspension Desugared -> Compile S.Exp
+compileSuspension (Suspension xs _) = S.EF <$> pure [([], [])] <*> mapM compileClause xs
 -- TODO: LC: Fix this!
 
 compileOp :: Operator Desugared -> Compile S.Exp

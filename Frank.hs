@@ -36,11 +36,11 @@ splice :: Program Raw -> Term Raw -> Program Raw
 splice (MkProgram xs) tm = MkProgram $ xs ++ ys
   where
     ys = [sig, cls]
-    sig = SigTerm (MkSig ident (CompType [] peg b) b) b
+    sig = SigTerm (MkMultiHandlerSignature ident (CompType [] peg b) b) b
     peg = Peg ab ty b
     ty = TVar "%X" b
     ab = Ab (AbVar "£" b) (InterfaceMap M.empty (Raw Generated)) b
-    cls = ClauseTerm (MkMHClause ident (MkClause [] tm b) b) b
+    cls = ClauseTerm (MkMultiHandlerClause ident (MkClause [] tm b) b) b
     ident = "%eval"
     b = Raw Generated
 
